@@ -1,8 +1,13 @@
 [package]
 name = "FerrousLearn"
 version = "0.1.0"
+authors = ["John Denton"]
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
+description = "dependancy free, machine learning"
+readme = "README.md"
+repository = "https://github.com/lm-bds/FerrousLearn/"
+license = "MIT OR Apache-2.0"
+keywords = ["Machine Learning"]
+categories = ["machine learning"]
+include = ["/src"]
 [dependencies]
