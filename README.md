@@ -13,15 +13,16 @@ Various Helper Functions: Including distance metrics, standardization, and matri
 ## Installation
 To use FerrousLearn in your project, add it as a dependency in your Cargo.toml:
 
-toml
-Copy code
+```toml
 [dependencies]
 ferrouslearn = { git = "https://github.com/lm-bds/ferrouslearn.git" }
-Usage
+```
+
+## Usage
 Here's a quick overview of how you can use some of the features of FerrousLearn:
 
 Linear Regression
-``
+```rust
 use ferrouslearn::LinearRegression;
 
 let mut model = LinearRegression::new(0.1, 1000);
@@ -30,7 +31,7 @@ let y_train = vec![5.0, 6.0];
 
 model.fit(&x_train, &y_train, false);
 let predictions = model.predict(&vec![vec![2.0, 3.0]]);
-``
+```
 
 K-Nearest Neighbors Regressor
 ```rust
