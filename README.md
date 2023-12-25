@@ -4,11 +4,11 @@ Free of any dependencies, FerrousLearn is a Rust-based machine learning library 
 Without any dependancies this simple approach is also a learning tool for felllow data scientist to get more aquianted with the algorithms we use.
 
 ## Features
-Linear Regression: Implementation of linear regression for predictive modeling.
-Logistic Regression: Binary classification using logistic regression.
-K-Nearest Neighbors Regressor: A non-parametric method used for regression tasks.
-Principal Component Analysis (PCA): Dimensionality reduction technique. // coming soon 
-Various Helper Functions: Including distance metrics, standardization, and matrix operations.
+- Linear Regression: Implementation of linear regression for predictive modeling.
+- Logistic Regression: Binary classification using logistic regression.
+- K-Nearest Neighbors Regressor: A non-parametric method used for regression tasks.
+- Principal Component Analysis (PCA): Dimensionality reduction technique. // coming soon 
+- Various Helper Functions: Including distance metrics, standardization, and matrix operations.
 
 ## Installation
 To use FerrousLearn in your project, add it as a dependency in your Cargo.toml:
