@@ -63,6 +63,6 @@ git checkout -b feature-your-feature
 cargo test
 ```
 
-License
+## License
 This project is licensed under MIT License.
 
