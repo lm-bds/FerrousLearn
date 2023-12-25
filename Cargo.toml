@@ -1,6 +1,6 @@
 [package]
 name = "FerrousLearn"
-version = "0.1.3"
+version = "0.1.4"
 authors = ["John Denton"]
 edition = "2021"
 description = "dependancy free, machine learning"
