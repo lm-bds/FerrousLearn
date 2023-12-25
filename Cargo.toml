@@ -5,9 +5,9 @@ authors = ["John Denton"]
 edition = "2021"
 description = "dependancy free, machine learning"
 readme = "README.md"
-repository = "https://github.com/lm-bds/FerrousLearn/"
+repository = "https://github.com/lm-bds/FerrousLearn.git"
 license = "MIT OR Apache-2.0"
-keywords = ["Machine Learning"]
+keywords = ["machine-learning"]
 categories = ["machine learning"]
 include = ["/src"]
 [dependencies]
