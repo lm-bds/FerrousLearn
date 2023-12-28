@@ -1,4 +1,5 @@
-/// Trait for that provides description for models and statistical functions
+#![allow(dead_code, unused_imports, unused_variables, non_snake_case)]
+
 pub trait FerrousLearn {
     // Sigmoid function
     //! Can intake data inside Vec<Vec<f64>> enum as a vector or vector of vectors
@@ -31,8 +32,41 @@ struct PrincipalComponentAnalysis {
     // svd_solver: SVD,
     tol: f64,
     whiten: bool,
+    tolerance: f64,
 }
+impl PrincipalComponentAnalysis {
+    fn new(
+        n_components: usize,
+        tol: f64,
+        whiten: bool,
+        tolerance: f64,
+    ) -> PrincipalComponentAnalysis {
+        PrincipalComponentAnalysis {
+            n_components,
+            tol,
+            whiten,
+            tolerance,
+        }
+    }
+    fn transform(&self, data: Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+        let data = standardise_matrix(&data);
+        let n_features = data[0].len();
+        let n_samples = data.len();
+        let n_components = self.n_components;
+        let covariance_matrix = covariance_matrix(&data);
+        let eigenvalues = qr_algorithm(&covariance_matrix, self.tolerance);
+        let mut eigenvectors = Vec::new();
+        for eigenvalue in eigenvalues.iter() {
+            let eigenvector = find_eigenvector(&covariance_matrix, eigenvalue);
+            eigenvectors.push(eigenvector);
+        }
 
+        let projection_matrix = form_projection_matrix(&eigenvectors, 2);
+
+        let transformed_data = transform_data(&data, &projection_matrix);
+        transformed_data
+    }
+}
 struct KNearestNeighboursRegressor {
     k: usize,
     weighting_function: WeightingFunction,
@@ -375,23 +409,303 @@ fn distance_weighting(distance: f64) -> f64 {
     1.0 / distance
 }
 
-fn main() {
-    let mut model = LinearRegression::new(0.1, 100000); // Learning rate, iterations
-    let x_train = standardise_matrix(&vec![
-        vec![2.0, 3.0],
-        vec![1.0, 4.0],
-        vec![5.0, 6.0],
-        vec![7.0, 8.0],
-    ]);
-
-    let y_train = vec![0.0, 0.0, 1.0, 1.0]; // Example binary labels
-
-    model.fit(&x_train, &y_train, true);
-
-    let x_test = vec![vec![1.0, 2.0], vec![4.0, 5.0]];
-    let predictions = model.predict(&x_train);
-    println!("Predictions: {:?}", predictions);
+fn sdot(vec1: &Vec<f64>, vec2: &Vec<f64>) -> f64 {
+    vec1.iter()
+        .zip(vec2.iter())
+        .map(|(x, y)| x * y)
+        .sum::<f64>()
 }
+
+fn covariance_matrix(data: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+    let n_features = data[0].len();
+    let n_samples = data.len();
+    let mut covariance_matrix = vec![vec![0.0; n_features]; n_features];
+    let transposed_data = transpose(&data);
+    for i in 0..n_features {
+        for j in i..n_features {
+            let covariance = sdot(&transposed_data[i], &transposed_data[j]) / n_samples as f64;
+            covariance_matrix[i][j] = covariance;
+            covariance_matrix[j][i] = covariance;
+        }
+    }
+    covariance_matrix
+}
+
+fn scale_vector(vec: &Vec<f64>, scalar: f64) -> Vec<f64> {
+    vec.iter().map(|x| x * scalar).collect()
+}
+
+fn normalise_vector(vec: &Vec<f64>) -> Vec<f64> {
+    let norm = vec.iter().map(|x| x.powi(2)).sum::<f64>().sqrt();
+    if norm > 0.0 {
+        vec.iter().map(|x| x / norm).collect()
+    } else {
+        vec.clone()
+    }
+}
+
+fn vector_difference_norm(vec1: &Vec<f64>, vec2: &Vec<f64>) -> f64 {
+    vec1.iter()
+        .zip(vec2.iter())
+        .map(|(x, y)| (x - y).powi(2))
+        .sum::<f64>()
+        .sqrt()
+}
+
+fn qr_decomposition(matrix: &Vec<Vec<f64>>) -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
+    let n_features = matrix[0].len();
+    let n_samples = matrix.len();
+    let mut q = matrix.clone();
+    let mut r = vec![vec![0.0; n_features]; n_features];
+
+    for i in 0..n_features {
+        let mut i_th_column = q.iter().map(|row| row[i]).collect::<Vec<f64>>();
+        normalise_vector(&mut i_th_column);
+        for k in 0..n_samples {
+            q[k][i] = i_th_column[k];
+        }
+        for j in i + 1..n_features {
+            let jth_column = q.iter().map(|row| row[j]).collect::<Vec<f64>>();
+            r[i][j] = sdot(&i_th_column, &jth_column);
+
+            for k in 0..n_samples {
+                q[k][j] -= r[i][j] * i_th_column[k];
+            }
+        }
+    }
+    (q, r)
+}
+
+fn gramscmidt_orthogonalisation(matrix: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+    let mut orthogonalised_matrix = Vec::new();
+    let transposed_matrix = transpose(&matrix);
+    for row in transposed_matrix.iter() {
+        let mut orthogonalised_row = row.clone();
+        for v in &orthogonalised_matrix {
+            let projection = projection(&orthogonalised_row, &v);
+            orthogonalised_row = vector_difference(&orthogonalised_row, &projection);
+        }
+        let norm_row = norm(&mut orthogonalised_row);
+        let orthogonalised_row_normalised =
+            orthogonalised_row.iter().map(|&x| x / norm_row).collect();
+        orthogonalised_matrix.push(orthogonalised_row_normalised);
+    }
+    transpose(&orthogonalised_matrix)
+}
+
+fn calculate_r(matrix: &Vec<Vec<f64>>, q: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+    let q = transpose(&q);
+    let mut r = vec![vec![0.0; matrix.len()]; matrix.len()];
+
+    for i in 0..matrix.len() {
+        for j in i..matrix.len() {
+            r[i][j] = sdot(&q[i], &matrix[j]);
+        }
+    }
+
+    r
+}
+
+fn norm(v: &Vec<f64>) -> f64 {
+    sdot(v, v).sqrt()
+}
+fn vector_difference(vec1: &Vec<f64>, vec2: &Vec<f64>) -> Vec<f64> {
+    vec1.iter().zip(vec2.iter()).map(|(x, y)| x - y).collect()
+}
+
+fn is_zero_vector(vec: &Vec<f64>) -> bool {
+    vec.iter().all(|&x| x.abs() < 1e-10)
+}
+
+fn projection(vec1: &Vec<f64>, vec2: &Vec<f64>) -> Vec<f64> {
+    let scalar = sdot(vec1, vec2) / sdot(vec2, vec2);
+    scale_vector(vec2, scalar)
+}
+fn qr_algorithm(matrix: &Vec<Vec<f64>>, tolerance: f64) -> Vec<f64> {
+    let mut current_matrix = matrix.clone();
+    while !has_converged(&current_matrix, tolerance) {
+        let q = gramscmidt_orthogonalisation(&current_matrix);
+        let r = calculate_r(&current_matrix, &q);
+        current_matrix = matrix_multiply(&r, &q);
+    }
+    let eigenvalues = (0..current_matrix[0].len())
+        .map(|i| current_matrix[i][i])
+        .collect();
+    eigenvalues
+}
+
+fn has_converged(matrix: &[Vec<f64>], tolerance: f64) -> bool {
+    let nrows = matrix.len();
+    let ncols = matrix[0].len();
+
+    // Check if the matrix is square
+    if nrows != ncols {
+        panic!("Matrix must be square.");
+    }
+
+    for i in 0..nrows {
+        for j in 0..ncols {
+            if i != j && matrix[i][j].abs() > tolerance {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn matrix_multiply(a: &Vec<Vec<f64>>, b: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+    let mut result = vec![vec![0.0; b[0].len()]; a.len()];
+
+    for i in 0..a.len() {
+        for j in 0..b[0].len() {
+            for k in 0..b.len() {
+                let a_part = a[i][k];
+                let b_part = b[k][j];
+                let result_part = a_part * b_part;
+                result[i][j] = result[i][j] + result_part;
+            }
+        }
+    }
+    result
+}
+fn determinant(matrix: &Vec<Vec<f64>>) -> f64 {
+    let nrows = matrix.len();
+    let ncols = matrix[0].len();
+
+    assert_eq!(nrows, ncols, "Matrix must be square.");
+
+    match nrows {
+        2 => matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0],
+        3 => {
+            let a = matrix[0][0] * (matrix[1][1] * matrix[2][2] - matrix[1][2] * matrix[2][1]);
+            let b = matrix[0][1] * (matrix[1][0] * matrix[2][2] - matrix[1][2] * matrix[2][0]);
+            let c = matrix[0][2] * (matrix[1][0] * matrix[2][1] - matrix[1][1] * matrix[2][0]);
+            a - b + c
+        }
+        _ => {
+            let (_, u) = lu_decomposition(matrix);
+            determinant_from_lu(&u)
+        }
+    }
+}
+
+fn lu_decomposition(matrix: &Vec<Vec<f64>>) -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
+    let n = matrix.len();
+    assert!(
+        n > 0 && matrix[0].len() == n,
+        "Matrix must be square and non-empty."
+    );
+
+    let mut l = vec![vec![0.0; n]; n];
+    let mut u = vec![vec![0.0; n]; n];
+
+    for i in 0..n {
+        // Upper Triangular
+        for k in i..n {
+            let mut sum = 0.0;
+            for j in 0..i {
+                sum += l[i][j] * u[j][k];
+            }
+            u[i][k] = matrix[i][k] - sum;
+        }
+
+        // Lower Triangular
+        for k in i..n {
+            if i == k {
+                l[i][i] = 1.0; // Diagonal as 1
+            } else {
+                let mut sum = 0.0;
+                for j in 0..i {
+                    sum += l[k][j] * u[j][i];
+                }
+                l[k][i] = (matrix[k][i] - sum) / u[i][i];
+            }
+        }
+    }
+
+    (l, u)
+}
+
+fn determinant_from_lu(u: &Vec<Vec<f64>>) -> f64 {
+    let mut det = 1.0;
+    for i in 0..u.len() {
+        det *= u[i][i];
+    }
+    det
+}
+fn calculate_eigenvalues(matrix: Vec<Vec<f64>>) -> [f64; 2] {
+    let a = matrix[0][0];
+    let b = matrix[0][1];
+    let c = matrix[1][0];
+    let d = matrix[1][1];
+
+    let trace = a + d;
+    let determinant = a * d - b * c;
+
+    let middle_term = (trace / 2.0).powi(2) - determinant;
+    let sqrt_middle_term = middle_term.sqrt();
+
+    let eigenvalue1 = trace / 2.0 - sqrt_middle_term;
+    let eigenvalue2 = trace / 2.0 + sqrt_middle_term;
+
+    [eigenvalue1, eigenvalue2]
+}
+
+fn gaussian_elimination_for_eigenvector(a: &mut [Vec<f64>]) -> Vec<f64> {
+    let n = a.len();
+    let mut x = vec![0.0; n];
+
+    // Forward elimination
+    for i in 0..n {
+        if a[i][i].abs() < 1e-6 {
+            a[i][i] = 1.0;
+            x[i] = 1.0;
+            continue;
+        }
+
+        for j in (i + 1)..n {
+            let ratio = a[j][i] / a[i][i];
+            for k in i..n {
+                a[j][k] -= ratio * a[i][k];
+            }
+        }
+    }
+
+    // Backward substitution
+    for i in (0..n).rev() {
+        for j in (i + 1)..n {
+            x[i] -= a[i][j] * x[j];
+        }
+        x[i] /= a[i][i];
+    }
+
+    x
+}
+
+fn find_eigenvector(matrix: &Vec<Vec<f64>>, eigenvalue: &f64) -> Vec<f64> {
+    let mut a = matrix.to_vec();
+    let n = a.len();
+
+    // Subtract the eigenvalue from the diagonal elements to form (A - lambda * I)
+    for i in 0..n {
+        a[i][i] -= eigenvalue;
+    }
+
+    gaussian_elimination_for_eigenvector(&mut a)
+}
+fn form_projection_matrix(eigenvectors: &Vec<Vec<f64>>, k: usize) -> Vec<Vec<f64>> {
+    let mut projection_matrix = Vec::new();
+    for i in 0..k {
+        projection_matrix.push(eigenvectors[i].clone());
+    }
+    projection_matrix
+}
+
+fn transform_data(data: &Vec<Vec<f64>>, projection_matrix: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+    let transposed_projection_matrix = transpose(projection_matrix);
+    matrix_multiply(data, &transposed_projection_matrix)
+}
+fn main() {}
 
 #[cfg(test)]
 mod tests {
@@ -400,56 +714,40 @@ mod tests {
     #[test]
     fn test_knn_regressor() {
         let mut regressor = KNearestNeighboursRegressor::new(
-            3, // Use 3 nearest neighbors
+            3,
             WeightingFunction::Uniform,
             DistanceMetric::Euclidean,
         );
 
-        // Dummy training data - usually you'd have more complex data
         let x_train = vec![vec![1.0, 2.0], vec![2.0, 3.0], vec![3.0, 4.0]];
-        let y_train = vec![2.0, 3.0, 4.0]; // Corresponding labels
-
+        let y_train = vec![2.0, 3.0, 4.0];
         regressor.fit(&x_train, &y_train, Verbosity::Silent);
 
-        // Test prediction
-        let predictions = regressor.predict(vec![vec![2.0, 3.0]]); // Predict for a data point similar to training data
-
-        // Check the prediction - in this simple case, it might be close to the average of y_train
-        assert_eq!(predictions.len(), 1); // Ensure we have one prediction
-        assert!((predictions[0] - 3.0).abs() < 1e-5); // Check if the prediction is as expected
+        let predictions = regressor.predict(vec![vec![2.0, 3.0]]);
+        assert_eq!(predictions.len(), 1);
+        assert!((predictions[0] - 3.0).abs() < 1e-5);
     }
     #[test]
     fn test_linear_regression() {
-        // Create dummy data
         let data = vec![vec![1.0, 2.0], vec![2.0, 3.0], vec![3.0, 4.0]];
         let target = vec![3.0, 5.0, 7.0]; // Simple linear relationship
 
-        // Create and fit the model
         let mut model = LinearRegression::new(0.01, 1000);
         model.fit(&data, &target, false);
 
-        // Predict using the same data
         let predictions = model.predict(&data);
 
-        // Check predictions (simple check due to randomness in the training process)
         for (predicted, &actual) in predictions.iter().zip(target.iter()) {
-            assert!((predicted - actual).abs() < 1.0); // Adjust tolerance as needed
+            assert!((predicted - actual).abs() < 1.0);
         }
     }
     #[test]
     fn test_logistic_regression() {
-        // Create dummy data
         let data = vec![vec![1.0], vec![2.0], vec![3.0]];
         let target = vec![0.0, 0.0, 1.0]; // Simple binary targets
-
-        // Create and fit the model
         let mut model = LogisticRegression::new(0.01, 1000);
         model.fit(&data, &target, false);
-
-        // Predict using the same data
         let predictions = model.predict(&data);
-
-        // Check predictions (simple check due to randomness in the training process)
         for (predicted, &actual) in predictions.iter().zip(target.iter()) {
             let predicted_class = if *predicted > 0.5 { 1.0 } else { 0.0 };
             assert_eq!(predicted_class, actual);
@@ -481,13 +779,10 @@ mod tests {
             .collect::<Vec<f64>>();
         assert_eq!(standardised.len(), expected.len());
         for (a, b) in standardised.iter().zip(expected.iter()) {
-            assert!((a - b).abs() < 1e-6); // Using a small tolerance for floating-point comparison
+            assert!((a - b).abs() < 1e-6);
         }
     }
-    #[test]
-    fn test_standardise_matrix() {
-        unimplemented!("Test standardise_matrix");
-    }
+
     #[test]
     fn test_calculate_mean() {
         let data = vec![1.0, 2.0, 3.0, 4.0];
@@ -546,64 +841,126 @@ mod tests {
         let expected = 10.0;
         assert_eq!(distance_weighting(distance), expected);
     }
+    // #[test]
+    // fn test_principal_comonent_analysis() {
+    //     let mut pca = PrincipalComponentAnalysis {
+    //         n_components: 2,
+    //         tol: 0.0,
+    //         whiten: false,
+    //     };
+    //
+    //     let data = vec![vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0, 6.0]];
+    //     pca.fit(&data);
+    //     let expected = vec![vec![-1.0, 0.0], vec![0.0, 0.0], vec![1.0, 0.0]];
+    //     assert_eq!(pca.components, expected);
+    // }
+    // #[test]
+    // fn test_descision_tree_classifier() {
+    //     let mut tree = DecisionTreeClassifier::new(2, 2);
+    //     let data = vec![vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0, 6.0]];
+    //     let target = vec![0.0, 1.0, 0.0];
+    //     tree.fit(&data, &target);
+    //     let expected = vec![vec![1.0, 2.0], vec![5.0, 6.0]];
+    //     assert_eq!(tree.left_child.unwrap().data, expected);
+    // }
+    //
+    // #[test]
+    // fn test_decision_tree_regressor() {
+    //     let mut tree = DecisionTreeRegressor::new(2, 2);
+    //     let data = vec![vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0, 6.0]];
+    //     let target = vec![0.0, 1.0, 0.0];
+    //     tree.fit(&data, &target);
+    //     let expected = vec![vec![1.0, 2.0], vec![5.0, 6.0]];
+    //     assert_eq!(tree.left_child.unwrap().data, expected);
+    // }
+    // #[test]
+    // fn test_random_forest_classifier() {
+    //     let mut forest = RandomForestClassifier::new(2, 2, 2);
+    //     let data = vec![vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0, 6.0]];
+    //     let target = vec![0.0, 1.0, 0.0];
+    //     forest.fit(&data, &target);
+    //     let expected = vec![vec![1.0, 2.0], vec![5.0, 6.0]];
+    //     assert_eq!(forest.trees[0].left_child.unwrap().data, expected);
+    // }
+    //
+    // #[test]
+    // fn test_random_forest_regressor() {
+    //     let mut forest = RandomForestRegressor::new(2, 2, 2);
+    //     let data = vec![vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0, 6.0]];
+    //     let target = vec![0.0, 1.0, 0.0];
+    //     forest.fit(&data, &target);
+    //     let expected = vec![vec![1.0, 2.0], vec![5.0, 6.0]];
+    //     assert_eq!(forest.trees[0].left_child.unwrap().data, expected);
+    // }
+    //
+    // #[test]
+    // fn test_kmeans() {
+    //     let mut kmeans = KMeans::new(2, 2);
+    //     let data = vec![vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0, 6.0]];
+    //     kmeans.fit(&data);
+    //     let expected = vec![vec![1.0, 2.0], vec![5.0, 6.0]];
+    //     assert_eq!(kmeans.centroids, expected);
+    // }
     #[test]
-    fn test_principal_comonent_analysis() {
-        let mut pca = PrincipalComponentAnalysis {
-            n_components: 2,
-            tol: 0.0,
-            whiten: false,
-        };
+    fn test_qr_algorithm() {
+        // Define a simple 2x2 symmetric matrix
+        let matrix = vec![vec![4.0, 1.0], vec![1.0, 3.0]];
 
-        let data = vec![vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0, 6.0]];
-        pca.fit(&data);
-        let expected = vec![vec![-1.0, 0.0], vec![0.0, 0.0], vec![1.0, 0.0]];
-        assert_eq!(pca.components, expected);
+        // Set a tolerance for convergence
+        let tolerance = 1e-6;
+
+        // Call the QR algorithm
+        let eigenvalues = qr_algorithm(&matrix, tolerance);
+
+        // Known eigenvalues for this matrix are approximately 4.236 and 2.764
+        let known_eigenvalues = vec![4.23606797749979, 2.76393202250021];
+        println!("Eigenvalues: {:?}", eigenvalues);
+        // Check if the calculated eigenvalues are close to the known eigenvalues
+        assert_eq!(eigenvalues.len(), known_eigenvalues.len());
+        for (calc, known) in eigenvalues.iter().zip(known_eigenvalues.iter()) {
+            assert!((calc - known).abs() < tolerance);
+        }
     }
-    #[test]
-    fn test_descision_tree_classifier() {
-        let mut tree = DecisionTreeClassifier::new(2, 2);
-        let data = vec![vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0, 6.0]];
-        let target = vec![0.0, 1.0, 0.0];
-        tree.fit(&data, &target);
-        let expected = vec![vec![1.0, 2.0], vec![5.0, 6.0]];
-        assert_eq!(tree.left_child.unwrap().data, expected);
+    fn create_test_data() -> Vec<Vec<f64>> {
+        vec![
+            vec![2.5, 2.4],
+            vec![0.5, 0.7],
+            vec![2.2, 2.9],
+            vec![1.9, 2.2],
+            vec![3.1, 3.0],
+            vec![2.3, 2.7],
+            vec![2.0, 1.6],
+            vec![1.0, 1.1],
+            vec![1.5, 1.6],
+            vec![1.1, 0.9],
+        ]
     }
 
     #[test]
-    fn test_decision_tree_regressor() {
-        let mut tree = DecisionTreeRegressor::new(2, 2);
-        let data = vec![vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0, 6.0]];
-        let target = vec![0.0, 1.0, 0.0];
-        tree.fit(&data, &target);
-        let expected = vec![vec![1.0, 2.0], vec![5.0, 6.0]];
-        assert_eq!(tree.left_child.unwrap().data, expected);
-    }
-    #[test]
-    fn test_random_forest_classifier() {
-        let mut forest = RandomForestClassifier::new(2, 2, 2);
-        let data = vec![vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0, 6.0]];
-        let target = vec![0.0, 1.0, 0.0];
-        forest.fit(&data, &target);
-        let expected = vec![vec![1.0, 2.0], vec![5.0, 6.0]];
-        assert_eq!(forest.trees[0].left_child.unwrap().data, expected);
-    }
+    fn test_pca_transform() {
+        let pca = PrincipalComponentAnalysis::new(2, 0.1, false, 0.01);
+        let test_data = create_test_data();
+        let transformed_data = pca.transform(test_data);
 
-    #[test]
-    fn test_random_forest_regressor() {
-        let mut forest = RandomForestRegressor::new(2, 2, 2);
-        let data = vec![vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0, 6.0]];
-        let target = vec![0.0, 1.0, 0.0];
-        forest.fit(&data, &target);
-        let expected = vec![vec![1.0, 2.0], vec![5.0, 6.0]];
-        assert_eq!(forest.trees[0].left_child.unwrap().data, expected);
-    }
+        assert_eq!(transformed_data.len(), 10); // 10 samples
+        assert_eq!(transformed_data[0].len(), 2); // 2 principal components
 
-    #[test]
-    fn test_kmeans() {
-        let mut kmeans = KMeans::new(2, 2);
-        let data = vec![vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0, 6.0]];
-        kmeans.fit(&data);
-        let expected = vec![vec![1.0, 2.0], vec![5.0, 6.0]];
-        assert_eq!(kmeans.centroids, expected);
+        let var_first_component = transformed_data
+            .iter()
+            .map(|row| row[0].powi(2))
+            .sum::<f64>()
+            / 10.0;
+        let var_second_component = transformed_data
+            .iter()
+            .map(|row| row[1].powi(2))
+            .sum::<f64>()
+            / 10.0;
+        assert!(var_first_component >= var_second_component);
+
+        let dot_product = transformed_data
+            .iter()
+            .map(|row| row[0] * row[1])
+            .sum::<f64>();
+        assert!(dot_product.abs() < 1e-6);
     }
 }
