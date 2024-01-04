@@ -27,6 +27,97 @@ enum DistanceMetric {
     Manhattan,
 }
 
+struct LCG {
+    multiplier: u64,
+    increment: u64,
+    modulus: u64,
+    seed: u64,
+}
+
+impl LCG {
+    // Creates a new LCG with given parameters
+    fn new(multiplier: u64, increment: u64, modulus: u64, seed: u64) -> Self {
+        LCG {
+            multiplier,
+            increment,
+            modulus,
+            seed,
+        }
+    }
+
+    // Generates the next number in the sequence
+    fn next(&mut self) -> u64 {
+        self.seed = (self.multiplier * self.seed + self.increment) % self.modulus;
+        self.seed
+    }
+
+    // Generates a random number within a specified range
+    fn rand_range(&mut self, min: u64, max: u64) -> u64 {
+        min + (self.next() % (max - min + 1))
+    }
+}
+
+struct KMeans {
+    n_clusters: usize,
+    max_iter: usize,
+    tolerance: f64,
+    centroids: Option<Vec<Vec<f64>>>,
+}
+
+impl KMeans {
+    fn new(n_clusters: usize, max_iter: usize, tolerance: f64) -> KMeans {
+        KMeans {
+            n_clusters,
+            max_iter,
+            tolerance,
+            centroids: None,
+        }
+    }
+    fn fit(&mut self, data: &Vec<Vec<f64>>, seed: u64) {
+        let mut centroids = Vec::new();
+        let mut rng = LCG::new(1664525, 1013904223, 2u64.pow(32), seed);
+        for _ in 0..self.n_clusters {
+            let random_index = rng.rand_range(0, data.len() as u64);
+            centroids.push(data[random_index as usize].clone());
+        }
+        for _ in 0..self.max_iter {
+            let cluster_assignments = data
+                .iter()
+                .map(|row| {
+                    let distances = find_distance_point_centroids(row, &centroids);
+                    let closest_centroid = find_closest_centroid(&distances);
+                    return closest_centroid;
+                })
+                .collect();
+            let clusters = create_3d_clusters(data.clone(), cluster_assignments, self.n_clusters);
+            let new_centroids = calculate_new_centroid(&clusters);
+            let mut centroid_movement = 0.0;
+            for (i, centroid) in centroids.iter().enumerate() {
+                centroid_movement += vector_difference_norm(centroid, &new_centroids[i]);
+            }
+            if centroid_movement < self.tolerance {
+                break;
+            }
+            centroids = new_centroids;
+        }
+        self.centroids = Some(centroids.clone());
+    }
+
+    fn predict(&self, data: &Vec<Vec<f64>>) -> Vec<usize> {
+        let mut predictions = Vec::new();
+        let centroids = self
+            .centroids
+            .as_ref()
+            .expect("Train model first before predicting");
+        for row in data.iter() {
+            let distances = find_distance_point_centroids(row, &centroids);
+            let closest_centroid = find_closest_centroid(&distances);
+            predictions.push(closest_centroid);
+        }
+        return predictions;
+    }
+}
+
 struct PrincipalComponentAnalysis {
     n_components: usize,
     // svd_solver: SVD,
@@ -705,6 +796,62 @@ fn transform_data(data: &Vec<Vec<f64>>, projection_matrix: &Vec<Vec<f64>>) -> Ve
     let transposed_projection_matrix = transpose(projection_matrix);
     matrix_multiply(data, &transposed_projection_matrix)
 }
+
+fn find_distance_point_centroids(point: &Vec<f64>, centroids: &Vec<Vec<f64>>) -> Vec<f64> {
+    let distances = centroids
+        .iter()
+        .map(|centriod| euclidean_distance(point, centriod))
+        .collect();
+    return distances;
+}
+
+fn find_closest_centroid(distances: &Vec<f64>) -> usize {
+    let min_distance = distances
+        .iter()
+        .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .unwrap();
+    let min_index = distances.iter().position(|x| x == min_distance).unwrap();
+    return min_index;
+}
+
+fn create_3d_clusters(
+    data: Vec<Vec<f64>>,
+    cluster_assignments: Vec<usize>,
+    n_cluster: usize,
+) -> Vec<Vec<Vec<f64>>> {
+    let mut clusters: Vec<Vec<Vec<f64>>> = Vec::new();
+    let max_cluster = cluster_assignments.iter().max().unwrap();
+    for _ in 0..max_cluster + 1 {
+        clusters.push(Vec::new());
+    }
+
+    for (row, &cluster) in data.iter().zip(cluster_assignments.iter()) {
+        clusters[cluster].push(row.clone());
+    }
+    return clusters;
+}
+
+fn calculate_new_centroid(clusters: &Vec<Vec<Vec<f64>>>) -> Vec<Vec<f64>> {
+    clusters
+        .iter()
+        .map(|cluster| {
+            let new_centroid = average_of_rows(transpose(cluster));
+            return new_centroid;
+        })
+        .collect()
+}
+
+fn average_of_rows(matrix: Vec<Vec<f64>>) -> Vec<f64> {
+    matrix
+        .iter()
+        .map(|row| {
+            let row_sum: f64 = row.iter().sum();
+            let average = row_sum / row.len() as f64;
+            return average;
+        })
+        .collect()
+}
+
 fn main() {}
 
 #[cfg(test)]
