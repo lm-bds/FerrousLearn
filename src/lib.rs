@@ -1,33 +1,28 @@
-#![allow(dead_code, unused_imports, unused_variables, non_snake_case)]
+#![allow(unused_imports, unused_variables, non_snake_case)]
 
-pub trait FerrousLearn {
-    // Sigmoid function
-    //! Can intake data inside Vec<Vec<f64>> enum as a vector or vector of vectors
-    //
-}
 #[derive(PartialEq)]
-enum Verbosity {
+pub enum Verbosity {
     Verbose,
     Silent,
 }
 
-enum SVD {
+pub enum SVD {
     Full,
     Randomized,
     Auto,
 }
 
-enum WeightingFunction {
+pub enum WeightingFunction {
     Uniform,
     Distance,
 }
 
-enum DistanceMetric {
+pub enum DistanceMetric {
     Euclidean,
     Manhattan,
 }
 
-struct LCG {
+pub struct LCG {
     multiplier: u64,
     increment: u64,
     modulus: u64,
@@ -36,7 +31,7 @@ struct LCG {
 
 impl LCG {
     // Creates a new LCG with given parameters
-    fn new(multiplier: u64, increment: u64, modulus: u64, seed: u64) -> Self {
+    pub fn new(multiplier: u64, increment: u64, modulus: u64, seed: u64) -> Self {
         LCG {
             multiplier,
             increment,
@@ -57,7 +52,7 @@ impl LCG {
     }
 }
 
-struct KMeans {
+pub struct KMeans {
     n_clusters: usize,
     max_iter: usize,
     tolerance: f64,
@@ -65,7 +60,7 @@ struct KMeans {
 }
 
 impl KMeans {
-    fn new(n_clusters: usize, max_iter: usize, tolerance: f64) -> KMeans {
+    pub fn new(n_clusters: usize, max_iter: usize, tolerance: f64) -> KMeans {
         KMeans {
             n_clusters,
             max_iter,
@@ -73,11 +68,11 @@ impl KMeans {
             centroids: None,
         }
     }
-    fn fit(&mut self, data: &Vec<Vec<f64>>, seed: u64) {
+    pub fn fit(&mut self, data: &Vec<Vec<f64>>, seed: u64) {
         let mut centroids = Vec::new();
         let mut rng = LCG::new(1664525, 1013904223, 2u64.pow(32), seed);
         for _ in 0..self.n_clusters {
-            let random_index = rng.rand_range(0, data.len() as u64);
+            let random_index = rng.rand_range(0, data.len() as u64 - 1);
             centroids.push(data[random_index as usize].clone());
         }
         for _ in 0..self.max_iter {
@@ -103,7 +98,7 @@ impl KMeans {
         self.centroids = Some(centroids.clone());
     }
 
-    fn predict(&self, data: &Vec<Vec<f64>>) -> Vec<usize> {
+    pub fn predict(&self, data: &Vec<Vec<f64>>) -> Vec<usize> {
         let mut predictions = Vec::new();
         let centroids = self
             .centroids
@@ -118,7 +113,7 @@ impl KMeans {
     }
 }
 
-struct PrincipalComponentAnalysis {
+pub struct PrincipalComponentAnalysis {
     n_components: usize,
     // svd_solver: SVD,
     tol: f64,
@@ -126,7 +121,7 @@ struct PrincipalComponentAnalysis {
     tolerance: f64,
 }
 impl PrincipalComponentAnalysis {
-    fn new(
+    pub fn new(
         n_components: usize,
         tol: f64,
         whiten: bool,
@@ -139,7 +134,7 @@ impl PrincipalComponentAnalysis {
             tolerance,
         }
     }
-    fn transform(&self, data: Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+    pub fn transform(&self, data: Vec<Vec<f64>>) -> Vec<Vec<f64>> {
         let data = standardise_matrix(&data);
         let n_features = data[0].len();
         let n_samples = data.len();
@@ -158,7 +153,7 @@ impl PrincipalComponentAnalysis {
         transformed_data
     }
 }
-struct KNearestNeighboursRegressor {
+pub struct KNearestNeighboursRegressor {
     k: usize,
     weighting_function: WeightingFunction,
     distance_metric: DistanceMetric,
@@ -242,21 +237,21 @@ impl KNearestNeighboursRegressor {
         return predictions;
     }
 }
-struct LinearRegression {
+pub struct LinearRegression {
     weights: Option<Vec<f64>>,
     learning_rate: f64,
     iterations: usize,
 }
 
 impl LinearRegression {
-    fn new(learning_rate: f64, iterations: usize) -> LinearRegression {
+    pub fn new(learning_rate: f64, iterations: usize) -> LinearRegression {
         LinearRegression {
             weights: None,
             learning_rate,
             iterations,
         }
     }
-    fn fit(&mut self, data: &Vec<Vec<f64>>, target: &Vec<f64>, verbose: bool) {
+    pub fn fit(&mut self, data: &Vec<Vec<f64>>, target: &Vec<f64>, verbose: bool) {
         let input_size = data[0].len();
         let X: Vec<Vec<f64>> = add_bias(&data);
 
@@ -291,7 +286,7 @@ impl LinearRegression {
             }
         }
     }
-    fn predict(&self, data: &Vec<Vec<f64>>) -> Vec<f64> {
+    pub fn predict(&self, data: &Vec<Vec<f64>>) -> Vec<f64> {
         let X = add_bias(&data);
         let weights = self
             .weights
@@ -305,14 +300,14 @@ impl LinearRegression {
         return predictions;
     }
 }
-struct LogisticRegression {
+pub struct LogisticRegression {
     weights: Option<Vec<f64>>,
     learning_rate: f64,
     iterations: usize,
 }
 
 impl LogisticRegression {
-    fn new(learning_rate: f64, iterations: usize) -> LogisticRegression {
+    pub fn new(learning_rate: f64, iterations: usize) -> LogisticRegression {
         LogisticRegression {
             weights: None,
             learning_rate,
@@ -323,7 +318,7 @@ impl LogisticRegression {
         1.0 / (1.0 + (-z).exp())
     }
 
-    fn fit(&mut self, data: &Vec<Vec<f64>>, target: &Vec<f64>, verbose: bool) {
+    pub fn fit(&mut self, data: &Vec<Vec<f64>>, target: &Vec<f64>, verbose: bool) {
         let input_size = data[0].len();
         let X: Vec<Vec<f64>> = add_bias(&data);
 
@@ -358,7 +353,7 @@ impl LogisticRegression {
             }
         }
     }
-    fn predict(&self, data: &Vec<Vec<f64>>) -> Vec<f64> {
+    pub fn predict(&self, data: &Vec<Vec<f64>>) -> Vec<f64> {
         let X = add_bias(&data);
         X.iter()
             .map(|X_row| {
