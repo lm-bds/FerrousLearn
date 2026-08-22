@@ -1,5 +1,3 @@
-#![allow(unused_imports, unused_variables, non_snake_case)]
-
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -847,7 +845,7 @@ fn manhatten_distance(vec1: &[f64], vec2: &[f64]) -> f64 {
     pairwise_distance_unchecked(vec1, vec2, DistanceMetric::Manhattan)
 }
 
-fn uniform_weighting(distance: f64) -> f64 {
+fn uniform_weighting(_distance: f64) -> f64 {
     1.0
 }
 
