@@ -68,7 +68,7 @@ impl KMeans {
             centroids: None,
         }
     }
-    pub fn fit(&mut self, data: &Vec<Vec<f64>>, seed: u64) {
+    pub fn fit(&mut self, data: &[Vec<f64>], seed: u64) {
         let mut centroids = Vec::new();
         let mut rng = LCG::new(1664525, 1013904223, 2u64.pow(32), seed);
         for _ in 0..self.n_clusters {
@@ -84,7 +84,7 @@ impl KMeans {
                     find_closest_centroid(&distances)
                 })
                 .collect();
-            let clusters = create_3d_clusters(data.clone(), cluster_assignments, self.n_clusters);
+            let clusters = create_3d_clusters(data, cluster_assignments, self.n_clusters);
             let new_centroids = calculate_new_centroid(&clusters);
             let mut centroid_movement = 0.0;
             for (i, centroid) in centroids.iter().enumerate() {
@@ -98,7 +98,7 @@ impl KMeans {
         self.centroids = Some(centroids.clone());
     }
 
-    pub fn predict(&self, data: &Vec<Vec<f64>>) -> Vec<usize> {
+    pub fn predict(&self, data: &[Vec<f64>]) -> Vec<usize> {
         let mut predictions = Vec::new();
         let centroids = self
             .centroids
@@ -168,15 +168,15 @@ impl KNearestNeighboursRegressor {
         }
     }
 
-    pub fn fit(&mut self, x_train: &Vec<Vec<f64>>, y_train: &Vec<f64>, verbose: Verbosity) {
-        self.x_train = Some(x_train.clone());
-        self.y_train = Some(y_train.clone());
+    pub fn fit(&mut self, x_train: &[Vec<f64>], y_train: &[f64], verbose: Verbosity) {
+        self.x_train = Some(x_train.to_vec());
+        self.y_train = Some(y_train.to_vec());
 
         if verbose == Verbosity::Verbose {
             println!("Model is lazy, no computation is done until prediction");
         };
     }
-    pub fn predict(&self, prediction_matrix: Vec<Vec<f64>>) -> Vec<f64> {
+    pub fn predict(&self, prediction_matrix: &[Vec<f64>]) -> Vec<f64> {
         let x_train = self
             .x_train
             .clone()
@@ -243,7 +243,7 @@ impl LinearRegression {
             iterations,
         }
     }
-    pub fn fit(&mut self, data: &Vec<Vec<f64>>, target: &Vec<f64>, verbose: bool) {
+    pub fn fit(&mut self, data: &[Vec<f64>], target: &[f64], verbose: bool) {
         let input_size = data[0].len();
         let X: Vec<Vec<f64>> = add_bias(data);
 
@@ -276,7 +276,7 @@ impl LinearRegression {
             }
         }
     }
-    pub fn predict(&self, data: &Vec<Vec<f64>>) -> Vec<f64> {
+    pub fn predict(&self, data: &[Vec<f64>]) -> Vec<f64> {
         let X = add_bias(data);
         let weights = self
             .weights
@@ -308,7 +308,7 @@ impl LogisticRegression {
         1.0 / (1.0 + (-z).exp())
     }
 
-    pub fn fit(&mut self, data: &Vec<Vec<f64>>, target: &Vec<f64>, verbose: bool) {
+    pub fn fit(&mut self, data: &[Vec<f64>], target: &[f64], verbose: bool) {
         let input_size = data[0].len();
         let X: Vec<Vec<f64>> = add_bias(data);
 
@@ -341,7 +341,7 @@ impl LogisticRegression {
             }
         }
     }
-    pub fn predict(&self, data: &Vec<Vec<f64>>) -> Vec<f64> {
+    pub fn predict(&self, data: &[Vec<f64>]) -> Vec<f64> {
         let X = add_bias(data);
         X.iter()
             .map(|X_row| {
@@ -356,7 +356,7 @@ impl LogisticRegression {
             .collect()
     }
 }
-fn add_bias(data: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+fn add_bias(data: &[Vec<f64>]) -> Vec<Vec<f64>> {
     let biased = data
         .iter()
         .map(|row| {
@@ -369,13 +369,13 @@ fn add_bias(data: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
     biased
 }
 
-fn standardise(vec: &Vec<f64>) -> Vec<f64> {
+fn standardise(vec: &[f64]) -> Vec<f64> {
     let mean = calculate_mean(vec);
     let std_dev = calculate_std_dev(vec);
     vec.iter().map(|x| (x - mean) / std_dev).collect()
 }
 
-fn standardise_matrix(vec: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+fn standardise_matrix(vec: &[Vec<f64>]) -> Vec<Vec<f64>> {
     let transposed_vec = transpose(vec);
     let mut standardised_matrix = Vec::new();
     for row in transposed_vec.iter() {
@@ -386,11 +386,11 @@ fn standardise_matrix(vec: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
     transpose(&standardised_matrix)
 }
 
-fn calculate_mean(vec: &Vec<f64>) -> f64 {
+fn calculate_mean(vec: &[f64]) -> f64 {
     vec.iter().sum::<f64>() / vec.len() as f64
 }
 
-fn calculate_std_dev(vec: &Vec<f64>) -> f64 {
+fn calculate_std_dev(vec: &[f64]) -> f64 {
     if vec.is_empty() {
         panic!("Vector is empty");
     }
@@ -407,7 +407,7 @@ fn log_loss(x: f64, y: f64) -> f64 {
     -y * probpred.ln() - (1.0 - y) * (1.0 - probpred).ln()
 }
 
-fn transpose(matrix: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+fn transpose(matrix: &[Vec<f64>]) -> Vec<Vec<f64>> {
     let rows = matrix.len();
     let cols = matrix[0].len();
     let mut transposed = vec![vec![0.0; rows]; cols];
@@ -421,7 +421,7 @@ fn transpose(matrix: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
     transposed
 }
 
-fn euclidean_distance(vec1: &Vec<f64>, vec2: &Vec<f64>) -> f64 {
+fn euclidean_distance(vec1: &[f64], vec2: &[f64]) -> f64 {
     if vec1.len() != vec2.len() {
         panic!("Vectors must be of same length");
     }
@@ -436,7 +436,7 @@ fn euclidean_distance(vec1: &Vec<f64>, vec2: &Vec<f64>) -> f64 {
         .sqrt()
 }
 
-fn manhatten_distance(vec1: &Vec<f64>, vec2: &Vec<f64>) -> f64 {
+fn manhatten_distance(vec1: &[f64], vec2: &[f64]) -> f64 {
     if vec1.len() != vec2.len() {
         panic!("Vectors must be of same length");
     }
@@ -458,14 +458,14 @@ fn distance_weighting(distance: f64) -> f64 {
     1.0 / distance
 }
 
-fn sdot(vec1: &Vec<f64>, vec2: &Vec<f64>) -> f64 {
+fn sdot(vec1: &[f64], vec2: &[f64]) -> f64 {
     vec1.iter()
         .zip(vec2.iter())
         .map(|(x, y)| x * y)
         .sum::<f64>()
 }
 
-fn covariance_matrix(data: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+fn covariance_matrix(data: &[Vec<f64>]) -> Vec<Vec<f64>> {
     let n_features = data[0].len();
     let n_samples = data.len();
     let mut covariance_matrix = vec![vec![0.0; n_features]; n_features];
@@ -480,11 +480,11 @@ fn covariance_matrix(data: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
     covariance_matrix
 }
 
-fn scale_vector(vec: &Vec<f64>, scalar: f64) -> Vec<f64> {
+fn scale_vector(vec: &[f64], scalar: f64) -> Vec<f64> {
     vec.iter().map(|x| x * scalar).collect()
 }
 
-fn vector_difference_norm(vec1: &Vec<f64>, vec2: &Vec<f64>) -> f64 {
+fn vector_difference_norm(vec1: &[f64], vec2: &[f64]) -> f64 {
     vec1.iter()
         .zip(vec2.iter())
         .map(|(x, y)| (x - y).powi(2))
@@ -492,7 +492,7 @@ fn vector_difference_norm(vec1: &Vec<f64>, vec2: &Vec<f64>) -> f64 {
         .sqrt()
 }
 
-fn gramscmidt_orthogonalisation(matrix: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+fn gramscmidt_orthogonalisation(matrix: &[Vec<f64>]) -> Vec<Vec<f64>> {
     let mut cols = transpose(matrix);
     let n = cols.len();
 
@@ -510,7 +510,7 @@ fn gramscmidt_orthogonalisation(matrix: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
     transpose(&cols)
 }
 
-fn calculate_r(matrix: &Vec<Vec<f64>>, q: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+fn calculate_r(matrix: &[Vec<f64>], q: &[Vec<f64>]) -> Vec<Vec<f64>> {
     let q_t = transpose(q);
     let matrix_t = transpose(matrix);
     let n = matrix.len();
@@ -525,20 +525,20 @@ fn calculate_r(matrix: &Vec<Vec<f64>>, q: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
     r
 }
 
-fn norm(v: &Vec<f64>) -> f64 {
+fn norm(v: &[f64]) -> f64 {
     sdot(v, v).sqrt()
 }
-fn vector_difference(vec1: &Vec<f64>, vec2: &Vec<f64>) -> Vec<f64> {
+fn vector_difference(vec1: &[f64], vec2: &[f64]) -> Vec<f64> {
     vec1.iter().zip(vec2.iter()).map(|(x, y)| x - y).collect()
 }
 
-fn projection(vec1: &Vec<f64>, vec2: &Vec<f64>) -> Vec<f64> {
+fn projection(vec1: &[f64], vec2: &[f64]) -> Vec<f64> {
     let scalar = sdot(vec1, vec2) / sdot(vec2, vec2);
     scale_vector(vec2, scalar)
 }
 
-fn qr_algorithm(matrix: &Vec<Vec<f64>>, tolerance: f64) -> Vec<f64> {
-    let mut current_matrix = matrix.clone();
+fn qr_algorithm(matrix: &[Vec<f64>], tolerance: f64) -> Vec<f64> {
+    let mut current_matrix = matrix.to_vec();
     while !has_converged(&current_matrix, tolerance) {
         let q = gramscmidt_orthogonalisation(&current_matrix);
         let r = calculate_r(&current_matrix, &q);
@@ -568,7 +568,7 @@ fn has_converged(matrix: &[Vec<f64>], tolerance: f64) -> bool {
     true
 }
 
-fn matrix_multiply(a: &Vec<Vec<f64>>, b: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+fn matrix_multiply(a: &[Vec<f64>], b: &[Vec<f64>]) -> Vec<Vec<f64>> {
     let mut result = vec![vec![0.0; b[0].len()]; a.len()];
 
     for i in 0..a.len() {
@@ -615,7 +615,7 @@ fn gaussian_elimination_for_eigenvector(a: &mut [Vec<f64>]) -> Vec<f64> {
     x
 }
 
-fn find_eigenvector(matrix: &Vec<Vec<f64>>, eigenvalue: &f64) -> Vec<f64> {
+fn find_eigenvector(matrix: &[Vec<f64>], eigenvalue: &f64) -> Vec<f64> {
     let mut a = matrix.to_vec();
     let n = a.len();
 
@@ -626,7 +626,7 @@ fn find_eigenvector(matrix: &Vec<Vec<f64>>, eigenvalue: &f64) -> Vec<f64> {
 
     gaussian_elimination_for_eigenvector(&mut a)
 }
-fn form_projection_matrix(eigenvectors: &Vec<Vec<f64>>, k: usize) -> Vec<Vec<f64>> {
+fn form_projection_matrix(eigenvectors: &[Vec<f64>], k: usize) -> Vec<Vec<f64>> {
     let mut projection_matrix = Vec::new();
     for i in 0..k {
         projection_matrix.push(eigenvectors[i].clone());
@@ -634,12 +634,12 @@ fn form_projection_matrix(eigenvectors: &Vec<Vec<f64>>, k: usize) -> Vec<Vec<f64
     projection_matrix
 }
 
-fn transform_data(data: &Vec<Vec<f64>>, projection_matrix: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+fn transform_data(data: &[Vec<f64>], projection_matrix: &[Vec<f64>]) -> Vec<Vec<f64>> {
     let transposed_projection_matrix = transpose(projection_matrix);
     matrix_multiply(data, &transposed_projection_matrix)
 }
 
-fn find_distance_point_centroids(point: &Vec<f64>, centroids: &Vec<Vec<f64>>) -> Vec<f64> {
+fn find_distance_point_centroids(point: &[f64], centroids: &[Vec<f64>]) -> Vec<f64> {
     let distances = centroids
         .iter()
         .map(|centriod| euclidean_distance(point, centriod))
@@ -647,7 +647,7 @@ fn find_distance_point_centroids(point: &Vec<f64>, centroids: &Vec<Vec<f64>>) ->
     distances
 }
 
-fn find_closest_centroid(distances: &Vec<f64>) -> usize {
+fn find_closest_centroid(distances: &[f64]) -> usize {
     let min_distance = distances
         .iter()
         .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
@@ -657,7 +657,7 @@ fn find_closest_centroid(distances: &Vec<f64>) -> usize {
 }
 
 fn create_3d_clusters(
-    data: Vec<Vec<f64>>,
+    data: &[Vec<f64>],
     cluster_assignments: Vec<usize>,
     n_cluster: usize,
 ) -> Vec<Vec<Vec<f64>>> {
@@ -673,7 +673,7 @@ fn create_3d_clusters(
     clusters
 }
 
-fn calculate_new_centroid(clusters: &Vec<Vec<Vec<f64>>>) -> Vec<Vec<f64>> {
+fn calculate_new_centroid(clusters: &[Vec<Vec<f64>>]) -> Vec<Vec<f64>> {
     clusters
         .iter()
         .map(|cluster| average_of_rows(transpose(cluster)))
@@ -695,7 +695,7 @@ fn average_of_rows(matrix: Vec<Vec<f64>>) -> Vec<f64> {
 mod tests {
     use super::*;
 
-    fn sigmoid_vec(data: &Vec<Vec<f64>>, weight: f64) -> Vec<Vec<f64>> {
+    fn sigmoid_vec(data: &[Vec<f64>], weight: f64) -> Vec<Vec<f64>> {
         data.iter()
             .map(|row| {
                 row.iter()
@@ -708,7 +708,7 @@ mod tests {
             .collect()
     }
 
-    fn matrix_vector_multiply(matrix: &Vec<Vec<f64>>, vector: &Vec<f64>) -> Vec<f64> {
+    fn matrix_vector_multiply(matrix: &[Vec<f64>], vector: &[f64]) -> Vec<f64> {
         if matrix.is_empty() || matrix[0].len() != vector.len() {
             panic!("Invalid dimensions for matrix-vector multiplication.");
         }
@@ -731,7 +731,7 @@ mod tests {
         let y_train = vec![2.0, 3.0, 4.0];
         regressor.fit(&x_train, &y_train, Verbosity::Silent);
 
-        let predictions = regressor.predict(vec![vec![2.0, 3.0]]);
+        let predictions = regressor.predict(&[vec![2.0, 3.0]]);
         assert_eq!(predictions.len(), 1);
         assert!((predictions[0] - 3.0).abs() < 1e-5);
     }
