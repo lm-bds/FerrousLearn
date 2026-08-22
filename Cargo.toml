@@ -14,3 +14,6 @@ categories = ["artificial-intelligence"]
 path = "src/lib.rs"
 
 [dependencies]
+
+[dev-dependencies]
+proptest = "1"

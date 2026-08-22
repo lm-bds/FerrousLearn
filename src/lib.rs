@@ -9,6 +9,14 @@ pub enum FerrousError {
         row: usize,
     },
     EmptyTargets,
+    EmptyVector,
+    VectorLengthMismatch {
+        left: usize,
+        right: usize,
+    },
+    NonFiniteVectorInput {
+        index: usize,
+    },
     RaggedMatrix {
         row: usize,
         expected: usize,
@@ -66,6 +74,15 @@ impl fmt::Display for FerrousError {
             FerrousError::EmptyDataset => write!(f, "dataset cannot be empty"),
             FerrousError::EmptyRow { row } => write!(f, "row {} cannot be empty", row),
             FerrousError::EmptyTargets => write!(f, "targets cannot be empty"),
+            FerrousError::EmptyVector => write!(f, "vector cannot be empty"),
+            FerrousError::VectorLengthMismatch { left, right } => write!(
+                f,
+                "left vector has length {} but right vector has length {}",
+                left, right
+            ),
+            FerrousError::NonFiniteVectorInput { index } => {
+                write!(f, "vector value at index {} must be finite", index)
+            }
             FerrousError::RaggedMatrix {
                 row,
                 expected,
@@ -109,7 +126,7 @@ impl fmt::Display for FerrousError {
                 components, feature_count
             ),
             FerrousError::InsufficientSamples { samples } => {
-                write!(f, "sample count {} is insufficient for PCA", samples)
+                write!(f, "at least two samples are required; received {}", samples)
             }
             FerrousError::ZeroVarianceFeature { column } => {
                 write!(f, "feature at column {} has zero variance", column)
@@ -156,6 +173,7 @@ pub enum WeightingFunction {
     Distance,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum DistanceMetric {
     Euclidean,
     Manhattan,
@@ -183,7 +201,11 @@ impl LCG {
 
     // Generates the next number in the sequence
     fn next(&mut self) -> u64 {
-        self.seed = (self.multiplier * self.seed + self.increment) % self.modulus;
+        self.seed = self
+            .multiplier
+            .wrapping_mul(self.seed)
+            .wrapping_add(self.increment)
+            % self.modulus;
         self.seed
     }
 
@@ -293,6 +315,43 @@ fn validate_tolerance(tolerance: f64, algorithm: &'static str) -> Result<(), Fer
     } else {
         Err(FerrousError::InvalidTolerance { algorithm })
     }
+}
+
+pub fn pairwise_distance(
+    left: &[f64],
+    right: &[f64],
+    metric: DistanceMetric,
+) -> Result<f64, FerrousError> {
+    validate_vector(left)?;
+    validate_vector(right)?;
+
+    if left.len() != right.len() {
+        return Err(FerrousError::VectorLengthMismatch {
+            left: left.len(),
+            right: right.len(),
+        });
+    }
+
+    Ok(pairwise_distance_unchecked(left, right, metric))
+}
+
+pub fn standardise(data: &[Vec<f64>]) -> Result<Vec<Vec<f64>>, FerrousError> {
+    validate_pca_input(data)?;
+    Ok(standardise_matrix_unchecked(data))
+}
+
+fn validate_vector(values: &[f64]) -> Result<(), FerrousError> {
+    if values.is_empty() {
+        return Err(FerrousError::EmptyVector);
+    }
+
+    for (index, value) in values.iter().enumerate() {
+        if !value.is_finite() {
+            return Err(FerrousError::NonFiniteVectorInput { index: index + 1 });
+        }
+    }
+
+    Ok(())
 }
 
 /// KMeans uses seeded deterministic initialization and keeps an empty cluster's
@@ -420,7 +479,7 @@ impl PrincipalComponentAnalysis {
 
         validate_tolerance(self.tolerance, "PCA/QR")?;
 
-        let data = standardise_matrix(data);
+        let data = standardise_matrix_unchecked(data);
         let covariance_matrix = covariance_matrix(&data);
         let eigenvalues = qr_algorithm(&covariance_matrix, self.tolerance, self.max_iterations)?;
         let mut eigenvectors = Vec::new();
@@ -712,17 +771,17 @@ fn add_bias(data: &[Vec<f64>]) -> Vec<Vec<f64>> {
     biased
 }
 
-fn standardise(vec: &[f64]) -> Vec<f64> {
+fn standardise_vector(vec: &[f64]) -> Vec<f64> {
     let mean = calculate_mean(vec);
     let std_dev = calculate_std_dev(vec);
     vec.iter().map(|x| (x - mean) / std_dev).collect()
 }
 
-fn standardise_matrix(vec: &[Vec<f64>]) -> Vec<Vec<f64>> {
+fn standardise_matrix_unchecked(vec: &[Vec<f64>]) -> Vec<Vec<f64>> {
     let transposed_vec = transpose(vec);
     let mut standardised_matrix = Vec::new();
     for row in transposed_vec.iter() {
-        let standardised_vec = standardise(row);
+        let standardised_vec = standardise_vector(row);
         standardised_matrix.push(standardised_vec);
     }
 
@@ -764,33 +823,28 @@ fn transpose(matrix: &[Vec<f64>]) -> Vec<Vec<f64>> {
     transposed
 }
 
-fn euclidean_distance(vec1: &[f64], vec2: &[f64]) -> f64 {
-    if vec1.len() != vec2.len() {
-        panic!("Vectors must be of same length");
+fn pairwise_distance_unchecked(vec1: &[f64], vec2: &[f64], metric: DistanceMetric) -> f64 {
+    match metric {
+        DistanceMetric::Euclidean => vec1
+            .iter()
+            .zip(vec2.iter())
+            .map(|(x, y)| (x - y).powi(2))
+            .sum::<f64>()
+            .sqrt(),
+        DistanceMetric::Manhattan => vec1
+            .iter()
+            .zip(vec2.iter())
+            .map(|(x, y)| (x - y).abs())
+            .sum::<f64>(),
     }
-    if vec1.is_empty() || vec2.is_empty() {
-        panic!("Vectors cannot be empty");
-    }
+}
 
-    vec1.iter()
-        .zip(vec2.iter())
-        .map(|(x, y)| (x - y).powi(2))
-        .sum::<f64>()
-        .sqrt()
+fn euclidean_distance(vec1: &[f64], vec2: &[f64]) -> f64 {
+    pairwise_distance_unchecked(vec1, vec2, DistanceMetric::Euclidean)
 }
 
 fn manhatten_distance(vec1: &[f64], vec2: &[f64]) -> f64 {
-    if vec1.len() != vec2.len() {
-        panic!("Vectors must be of same length");
-    }
-    if vec1.is_empty() || vec2.is_empty() {
-        panic!("Vectors cannot be empty");
-    }
-
-    vec1.iter()
-        .zip(vec2.iter())
-        .map(|(x, y)| (x - y).abs())
-        .sum::<f64>()
+    pairwise_distance_unchecked(vec1, vec2, DistanceMetric::Manhattan)
 }
 
 fn uniform_weighting(distance: f64) -> f64 {
@@ -1151,18 +1205,10 @@ mod tests {
     }
     #[test]
     fn test_standardise() {
-        let vec = vec![1.0, 2.0, 3.0];
-        let standardised = standardise(&vec);
-        let mean = calculate_mean(&vec);
-        let std_dev = calculate_std_dev(&vec);
-        let expected = vec
-            .iter()
-            .map(|x| (x - mean) / std_dev)
-            .collect::<Vec<f64>>();
-        assert_eq!(standardised.len(), expected.len());
-        for (a, b) in standardised.iter().zip(expected.iter()) {
-            assert!((a - b).abs() < 1e-6);
-        }
+        let data = vec![vec![1.0, 2.0], vec![2.0, 4.0], vec![3.0, 6.0]];
+        let standardised = standardise(&data).unwrap();
+        let expected = vec![vec![-1.0, -1.0], vec![0.0, 0.0], vec![1.0, 1.0]];
+        assert_eq!(standardised, expected);
     }
 
     #[test]
