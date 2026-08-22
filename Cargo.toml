@@ -16,4 +16,17 @@ path = "src/lib.rs"
 [dependencies]
 
 [dev-dependencies]
+criterion = "0.5"
 proptest = "1"
+
+[[bench]]
+name = "kmeans"
+harness = false
+
+[[bench]]
+name = "pca"
+harness = false
+
+[[bench]]
+name = "regression"
+harness = false
