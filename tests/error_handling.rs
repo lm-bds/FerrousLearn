@@ -64,6 +64,40 @@ fn kmeans_rejects_invalid_cluster_counts_and_prediction_mismatch() {
 }
 
 #[test]
+fn kmeans_rejects_invalid_tolerance_and_prioritises_cluster_count() {
+    let data = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
+    let invalid_tolerances = [f64::NEG_INFINITY, -1.0, f64::NAN, f64::INFINITY];
+
+    for tolerance in invalid_tolerances {
+        let mut model = KMeans::new(1, 10, tolerance);
+        assert!(matches!(
+            model.fit(&data, 7),
+            Err(FerrousError::InvalidTolerance {
+                algorithm: "KMeans"
+            })
+        ));
+    }
+
+    let mut zero_clusters = KMeans::new(0, 0, f64::NAN);
+    assert!(matches!(
+        zero_clusters.fit(&data, 7),
+        Err(FerrousError::InvalidClusterCount {
+            clusters: 0,
+            sample_count: 2,
+        })
+    ));
+
+    let mut too_many_clusters = KMeans::new(3, 0, f64::NEG_INFINITY);
+    assert!(matches!(
+        too_many_clusters.fit(&data, 7),
+        Err(FerrousError::InvalidClusterCount {
+            clusters: 3,
+            sample_count: 2,
+        })
+    ));
+}
+
+#[test]
 fn pca_rejects_invalid_components_and_values() {
     let data = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
 
@@ -91,6 +125,17 @@ fn pca_rejects_invalid_components_and_values() {
         pca.transform(&non_finite),
         Err(FerrousError::NonFiniteInput { row: 1, column: 2 })
     ));
+
+    let invalid_tolerances = [f64::NEG_INFINITY, -1.0, f64::NAN, f64::INFINITY];
+    for tolerance in invalid_tolerances {
+        let pca = PrincipalComponentAnalysis::new(1, tolerance);
+        assert!(matches!(
+            pca.transform(&data),
+            Err(FerrousError::InvalidTolerance {
+                algorithm: "PCA/QR"
+            })
+        ));
+    }
 
     let single_sample = vec![vec![1.0, 2.0]];
     let pca = PrincipalComponentAnalysis::new(1, 1e-4);
@@ -419,4 +464,16 @@ fn learning_errors_display_and_error_trait_cover_new_variants() {
 
     let pca_err = FerrousError::ZeroVarianceFeature { column: 3 };
     assert!(pca_err.to_string().contains('3'));
+
+    let tolerance_err = FerrousError::InvalidTolerance {
+        algorithm: "KMeans",
+    };
+    let tolerance_error: &dyn std::error::Error = &tolerance_err;
+    assert_eq!(
+        tolerance_err.to_string(),
+        "KMeans tolerance must be finite and non-negative"
+    );
+    assert_eq!(tolerance_err.to_string(), tolerance_error.to_string());
+    assert!(!tolerance_err.to_string().contains("NaN"));
+    assert!(!tolerance_err.to_string().contains("inf"));
 }

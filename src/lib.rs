@@ -46,6 +46,13 @@ pub enum FerrousError {
     ZeroVarianceFeature {
         column: usize,
     },
+    ConvergenceFailure {
+        algorithm: &'static str,
+        max_iterations: usize,
+    },
+    InvalidTolerance {
+        algorithm: &'static str,
+    },
     PredictionBeforeFit,
     FeatureCountMismatch {
         expected: usize,
@@ -107,6 +114,17 @@ impl fmt::Display for FerrousError {
             FerrousError::ZeroVarianceFeature { column } => {
                 write!(f, "feature at column {} has zero variance", column)
             }
+            FerrousError::ConvergenceFailure {
+                algorithm,
+                max_iterations,
+            } => write!(
+                f,
+                "{} failed to converge within {} iterations",
+                algorithm, max_iterations
+            ),
+            FerrousError::InvalidTolerance { algorithm } => {
+                write!(f, "{} tolerance must be finite and non-negative", algorithm)
+            }
             FerrousError::PredictionBeforeFit => {
                 write!(f, "model must be fitted before predicting")
             }
@@ -142,6 +160,8 @@ pub enum DistanceMetric {
     Euclidean,
     Manhattan,
 }
+
+const DEFAULT_QR_MAX_ITERATIONS: usize = 256;
 
 pub struct LCG {
     multiplier: u64,
@@ -267,6 +287,17 @@ fn validate_feature_count(expected: usize, actual: usize) -> Result<(), FerrousE
     }
 }
 
+fn validate_tolerance(tolerance: f64, algorithm: &'static str) -> Result<(), FerrousError> {
+    if tolerance.is_finite() && tolerance >= 0.0 {
+        Ok(())
+    } else {
+        Err(FerrousError::InvalidTolerance { algorithm })
+    }
+}
+
+/// KMeans uses seeded deterministic initialization and keeps an empty cluster's
+/// previous centroid instead of re-seeding it, so identical inputs and seeds
+/// produce identical assignments.
 pub struct KMeans {
     n_clusters: usize,
     max_iter: usize,
@@ -292,6 +323,15 @@ impl KMeans {
             });
         }
 
+        validate_tolerance(self.tolerance, "KMeans")?;
+
+        if self.max_iter == 0 {
+            return Err(FerrousError::ConvergenceFailure {
+                algorithm: "KMeans",
+                max_iterations: self.max_iter,
+            });
+        }
+
         let mut centroids = Vec::with_capacity(self.n_clusters);
         let mut rng = LCG::new(1664525, 1013904223, 2u64.pow(32), seed);
         for _ in 0..self.n_clusters {
@@ -313,16 +353,19 @@ impl KMeans {
             for (i, centroid) in centroids.iter().enumerate() {
                 centroid_movement += vector_difference_norm(centroid, &new_centroids[i]);
             }
-            if centroid_movement < self.tolerance {
-                break;
+            if centroid_movement <= self.tolerance {
+                debug_assert!(new_centroids
+                    .iter()
+                    .all(|centroid| centroid.len() == feature_count));
+                self.centroids = Some(new_centroids);
+                return Ok(());
             }
             centroids = new_centroids;
         }
-        debug_assert!(centroids
-            .iter()
-            .all(|centroid| centroid.len() == feature_count));
-        self.centroids = Some(centroids.clone());
-        Ok(())
+        Err(FerrousError::ConvergenceFailure {
+            algorithm: "KMeans",
+            max_iterations: self.max_iter,
+        })
     }
 
     pub fn predict(&self, data: &[Vec<f64>]) -> Result<Vec<usize>, FerrousError> {
@@ -345,12 +388,25 @@ impl KMeans {
 pub struct PrincipalComponentAnalysis {
     n_components: usize,
     tolerance: f64,
+    max_iterations: usize,
 }
 impl PrincipalComponentAnalysis {
     pub fn new(n_components: usize, tolerance: f64) -> PrincipalComponentAnalysis {
         PrincipalComponentAnalysis {
             n_components,
             tolerance,
+            max_iterations: DEFAULT_QR_MAX_ITERATIONS,
+        }
+    }
+    pub fn with_max_iterations(
+        n_components: usize,
+        tolerance: f64,
+        max_iterations: usize,
+    ) -> PrincipalComponentAnalysis {
+        PrincipalComponentAnalysis {
+            n_components,
+            tolerance,
+            max_iterations,
         }
     }
     pub fn transform(&self, data: &[Vec<f64>]) -> Result<Vec<Vec<f64>>, FerrousError> {
@@ -362,9 +418,11 @@ impl PrincipalComponentAnalysis {
             });
         }
 
+        validate_tolerance(self.tolerance, "PCA/QR")?;
+
         let data = standardise_matrix(data);
         let covariance_matrix = covariance_matrix(&data);
-        let eigenvalues = qr_algorithm(&covariance_matrix, self.tolerance);
+        let eigenvalues = qr_algorithm(&covariance_matrix, self.tolerance, self.max_iterations)?;
         let mut eigenvectors = Vec::new();
         for eigenvalue in eigenvalues.iter() {
             let eigenvector = find_eigenvector(&covariance_matrix, eigenvalue);
@@ -822,17 +880,43 @@ fn projection(vec1: &[f64], vec2: &[f64]) -> Vec<f64> {
     scale_vector(vec2, scalar)
 }
 
-fn qr_algorithm(matrix: &[Vec<f64>], tolerance: f64) -> Vec<f64> {
+fn qr_algorithm(
+    matrix: &[Vec<f64>],
+    tolerance: f64,
+    max_iterations: usize,
+) -> Result<Vec<f64>, FerrousError> {
+    validate_tolerance(tolerance, "PCA/QR")?;
+
+    if max_iterations == 0 {
+        return Err(FerrousError::ConvergenceFailure {
+            algorithm: "PCA/QR",
+            max_iterations,
+        });
+    }
+
     let mut current_matrix = matrix.to_vec();
-    while !has_converged(&current_matrix, tolerance) {
+    for _ in 0..max_iterations {
+        if has_converged(&current_matrix, tolerance) {
+            return Ok((0..current_matrix[0].len())
+                .map(|i| current_matrix[i][i])
+                .collect());
+        }
+
         let q = gramscmidt_orthogonalisation(&current_matrix);
         let r = calculate_r(&current_matrix, &q);
         current_matrix = matrix_multiply(&r, &q);
     }
 
-    (0..current_matrix[0].len())
-        .map(|i| current_matrix[i][i])
-        .collect()
+    if has_converged(&current_matrix, tolerance) {
+        return Ok((0..current_matrix[0].len())
+            .map(|i| current_matrix[i][i])
+            .collect());
+    }
+
+    Err(FerrousError::ConvergenceFailure {
+        algorithm: "PCA/QR",
+        max_iterations,
+    })
 }
 
 fn has_converged(matrix: &[Vec<f64>], tolerance: f64) -> bool {
@@ -840,7 +924,7 @@ fn has_converged(matrix: &[Vec<f64>], tolerance: f64) -> bool {
     let ncols = matrix[0].len();
 
     if nrows != ncols {
-        panic!("Matrix must be square.");
+        return false;
     }
 
     for (i, row) in matrix.iter().enumerate().take(nrows) {
@@ -1139,6 +1223,17 @@ mod tests {
         let expected = 10.0;
         assert_eq!(distance_weighting(distance), expected);
     }
+
+    #[test]
+    fn test_calculate_new_centroid_preserves_empty_clusters() {
+        let clusters = vec![vec![vec![1.0, 3.0], vec![3.0, 5.0]], vec![]];
+        let previous_centroids = vec![vec![9.0, 9.0], vec![7.0, 11.0]];
+
+        let new_centroids = calculate_new_centroid(&clusters, &previous_centroids);
+
+        assert_eq!(new_centroids[0], vec![2.0, 4.0]);
+        assert_eq!(new_centroids[1], previous_centroids[1]);
+    }
     // #[test]
     // fn test_principal_comonent_analysis() {
     //     let mut pca = PrincipalComponentAnalysis {
@@ -1208,7 +1303,7 @@ mod tests {
         let tolerance = 1e-6;
 
         // Call the QR algorithm
-        let eigenvalues = qr_algorithm(&matrix, tolerance);
+        let eigenvalues = qr_algorithm(&matrix, tolerance, 256).unwrap();
 
         // Known eigenvalues for this matrix are approximately 4.236 and 2.764
         let known_eigenvalues = [4.6180342, 2.381966];
