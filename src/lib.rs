@@ -80,8 +80,8 @@ impl KMeans {
                 .iter()
                 .map(|row| {
                     let distances = find_distance_point_centroids(row, &centroids);
-                    let closest_centroid = find_closest_centroid(&distances);
-                    return closest_centroid;
+
+                    find_closest_centroid(&distances)
                 })
                 .collect();
             let clusters = create_3d_clusters(data.clone(), cluster_assignments, self.n_clusters);
@@ -105,40 +105,33 @@ impl KMeans {
             .as_ref()
             .expect("Train model first before predicting");
         for row in data.iter() {
-            let distances = find_distance_point_centroids(row, &centroids);
+            let distances = find_distance_point_centroids(row, centroids);
             let closest_centroid = find_closest_centroid(&distances);
             predictions.push(closest_centroid);
         }
-        return predictions;
+        predictions
     }
 }
 
 pub struct PrincipalComponentAnalysis {
     n_components: usize,
-    // svd_solver: SVD,
-    tol: f64,
-    whiten: bool,
     tolerance: f64,
 }
 impl PrincipalComponentAnalysis {
-    pub fn new(
-        n_components: usize,
-        tol: f64,
-        whiten: bool,
-        tolerance: f64,
-    ) -> PrincipalComponentAnalysis {
+    pub fn new(n_components: usize, tolerance: f64) -> PrincipalComponentAnalysis {
         PrincipalComponentAnalysis {
             n_components,
-            tol,
-            whiten,
             tolerance,
         }
     }
     pub fn transform(&self, data: Vec<Vec<f64>>) -> Vec<Vec<f64>> {
         let data = standardise_matrix(&data);
         let n_features = data[0].len();
-        let n_samples = data.len();
         let n_components = self.n_components;
+        assert!(
+            (1..=n_features).contains(&n_components),
+            "n_components must be between 1 and the feature count"
+        );
         let covariance_matrix = covariance_matrix(&data);
         let eigenvalues = qr_algorithm(&covariance_matrix, self.tolerance);
         let mut eigenvectors = Vec::new();
@@ -147,10 +140,9 @@ impl PrincipalComponentAnalysis {
             eigenvectors.push(eigenvector);
         }
 
-        let projection_matrix = form_projection_matrix(&eigenvectors, 2);
+        let projection_matrix = form_projection_matrix(&eigenvectors, n_components);
 
-        let transformed_data = transform_data(&data, &projection_matrix);
-        transformed_data
+        transform_data(&data, &projection_matrix)
     }
 }
 pub struct KNearestNeighboursRegressor {
@@ -234,7 +226,7 @@ impl KNearestNeighboursRegressor {
             predictions.push(prediction);
         }
 
-        return predictions;
+        predictions
     }
 }
 pub struct LinearRegression {
@@ -253,7 +245,7 @@ impl LinearRegression {
     }
     pub fn fit(&mut self, data: &Vec<Vec<f64>>, target: &Vec<f64>, verbose: bool) {
         let input_size = data[0].len();
-        let X: Vec<Vec<f64>> = add_bias(&data);
+        let X: Vec<Vec<f64>> = add_bias(data);
 
         self.weights = Some(vec![0.0; input_size + 1]);
 
@@ -279,15 +271,13 @@ impl LinearRegression {
                 self.weights.as_mut().unwrap()[i] -=
                     self.learning_rate * gradients[i] / X.len() as f64;
             }
-            if verbose == true {
-                if i % 100 == 0 {
-                    println!("Iteration {}: Loss {}", i, loss);
-                }
+            if verbose && i % 100 == 0 {
+                println!("Iteration {}: Loss {}", i, loss);
             }
         }
     }
     pub fn predict(&self, data: &Vec<Vec<f64>>) -> Vec<f64> {
-        let X = add_bias(&data);
+        let X = add_bias(data);
         let weights = self
             .weights
             .as_ref()
@@ -297,7 +287,7 @@ impl LinearRegression {
             .iter()
             .map(|X_row| X_row.iter().zip(weights).map(|(&xi, &wi)| xi * wi).sum())
             .collect();
-        return predictions;
+        predictions
     }
 }
 pub struct LogisticRegression {
@@ -320,7 +310,7 @@ impl LogisticRegression {
 
     pub fn fit(&mut self, data: &Vec<Vec<f64>>, target: &Vec<f64>, verbose: bool) {
         let input_size = data[0].len();
-        let X: Vec<Vec<f64>> = add_bias(&data);
+        let X: Vec<Vec<f64>> = add_bias(data);
 
         self.weights = Some(vec![0.0; input_size + 1]);
         for i in 0..self.iterations {
@@ -346,15 +336,13 @@ impl LogisticRegression {
                 self.weights.as_mut().unwrap()[i] -=
                     self.learning_rate * gradients[i] / X.len() as f64;
             }
-            if verbose == true {
-                if i % 100 == 0 {
-                    println!("Iteration {}: Loss {}", i, loss);
-                }
+            if verbose && i % 100 == 0 {
+                println!("Iteration {}: Loss {}", i, loss);
             }
         }
     }
     pub fn predict(&self, data: &Vec<Vec<f64>>) -> Vec<f64> {
-        let X = add_bias(&data);
+        let X = add_bias(data);
         X.iter()
             .map(|X_row| {
                 Self::sigmoid(
@@ -378,7 +366,7 @@ fn add_bias(data: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
         })
         .collect();
 
-    return biased;
+    biased
 }
 
 fn sigmoid_vec(data: &Vec<Vec<f64>>, weight: f64) -> Vec<Vec<f64>> {
@@ -394,12 +382,12 @@ fn sigmoid_vec(data: &Vec<Vec<f64>>, weight: f64) -> Vec<Vec<f64>> {
                 .collect()
         })
         .collect();
-    return sigmoid;
+    sigmoid
 }
 fn standardise(vec: &Vec<f64>) -> Vec<f64> {
-    let mean = calculate_mean(&vec);
-    let std_dev = calculate_std_dev(&vec);
-    return vec.iter().map(|x| (x - mean) / std_dev).collect();
+    let mean = calculate_mean(vec);
+    let std_dev = calculate_std_dev(vec);
+    vec.iter().map(|x| (x - mean) / std_dev).collect()
 }
 
 fn standardise_matrix(vec: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
@@ -409,29 +397,29 @@ fn standardise_matrix(vec: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
         let standardised_vec = standardise(row);
         standardised_matrix.push(standardised_vec);
     }
-    let reshaped_matrix = transpose(&standardised_matrix);
-    return reshaped_matrix;
+
+    transpose(&standardised_matrix)
 }
 
 fn calculate_mean(vec: &Vec<f64>) -> f64 {
-    return vec.iter().sum::<f64>() / vec.len() as f64;
+    vec.iter().sum::<f64>() / vec.len() as f64
 }
 
 fn calculate_std_dev(vec: &Vec<f64>) -> f64 {
     if vec.is_empty() {
         panic!("Vector is empty");
     }
-    let mean: f64 = calculate_mean(&vec);
+    let mean: f64 = calculate_mean(vec);
     let variance: f64 =
         (vec.iter().map(|x| (x - mean) * (x - mean))).sum::<f64>() / (vec.len() - 1) as f64;
-    let std_dev = variance.sqrt();
-    return std_dev;
+
+    variance.sqrt()
 }
 
 fn log_loss(x: f64, y: f64) -> f64 {
     let epsilon = 1e-7;
     let probpred = x.max(epsilon).min(1.0 - epsilon);
-    return -y * probpred.ln() - (1.0 - y) * (1.0 - probpred).ln();
+    -y * probpred.ln() - (1.0 - y) * (1.0 - probpred).ln()
 }
 
 fn matrix_vector_multiply(matrix: &Vec<Vec<f64>>, vector: &Vec<f64>) -> Vec<f64> {
@@ -506,7 +494,7 @@ fn covariance_matrix(data: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
     let n_features = data[0].len();
     let n_samples = data.len();
     let mut covariance_matrix = vec![vec![0.0; n_features]; n_features];
-    let transposed_data = transpose(&data);
+    let transposed_data = transpose(data);
     for i in 0..n_features {
         for j in i..n_features {
             let covariance = sdot(&transposed_data[i], &transposed_data[j]) / n_samples as f64;
@@ -545,8 +533,8 @@ fn qr_decomposition(matrix: &Vec<Vec<f64>>) -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
     let mut r = vec![vec![0.0; n_features]; n_features];
 
     for i in 0..n_features {
-        let mut i_th_column = q.iter().map(|row| row[i]).collect::<Vec<f64>>();
-        normalise_vector(&mut i_th_column);
+        let i_th_column = q.iter().map(|row| row[i]).collect::<Vec<f64>>();
+        normalise_vector(&i_th_column);
         for k in 0..n_samples {
             q[k][i] = i_th_column[k];
         }
@@ -618,10 +606,10 @@ fn qr_algorithm(matrix: &Vec<Vec<f64>>, tolerance: f64) -> Vec<f64> {
         let r = calculate_r(&current_matrix, &q);
         current_matrix = matrix_multiply(&r, &q);
     }
-    let eigenvalues = (0..current_matrix[0].len())
+
+    (0..current_matrix[0].len())
         .map(|i| current_matrix[i][i])
-        .collect();
-    eigenvalues
+        .collect()
 }
 
 fn has_converged(matrix: &[Vec<f64>], tolerance: f64) -> bool {
@@ -651,7 +639,7 @@ fn matrix_multiply(a: &Vec<Vec<f64>>, b: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
                 let a_part = a[i][k];
                 let b_part = b[k][j];
                 let result_part = a_part * b_part;
-                result[i][j] = result[i][j] + result_part;
+                result[i][j] += result_part;
             }
         }
     }
@@ -800,7 +788,7 @@ fn find_distance_point_centroids(point: &Vec<f64>, centroids: &Vec<Vec<f64>>) ->
         .iter()
         .map(|centriod| euclidean_distance(point, centriod))
         .collect();
-    return distances;
+    distances
 }
 
 fn find_closest_centroid(distances: &Vec<f64>) -> usize {
@@ -809,7 +797,7 @@ fn find_closest_centroid(distances: &Vec<f64>) -> usize {
         .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
         .unwrap();
     let min_index = distances.iter().position(|x| x == min_distance).unwrap();
-    return min_index;
+    min_index
 }
 
 fn create_3d_clusters(
@@ -826,16 +814,13 @@ fn create_3d_clusters(
     for (row, &cluster) in data.iter().zip(cluster_assignments.iter()) {
         clusters[cluster].push(row.clone());
     }
-    return clusters;
+    clusters
 }
 
 fn calculate_new_centroid(clusters: &Vec<Vec<Vec<f64>>>) -> Vec<Vec<f64>> {
     clusters
         .iter()
-        .map(|cluster| {
-            let new_centroid = average_of_rows(transpose(cluster));
-            return new_centroid;
-        })
+        .map(|cluster| average_of_rows(transpose(cluster)))
         .collect()
 }
 
@@ -844,8 +829,8 @@ fn average_of_rows(matrix: Vec<Vec<f64>>) -> Vec<f64> {
         .iter()
         .map(|row| {
             let row_sum: f64 = row.iter().sum();
-            let average = row_sum / row.len() as f64;
-            return average;
+
+            row_sum / row.len() as f64
         })
         .collect()
 }
@@ -944,7 +929,7 @@ mod tests {
     fn test_log_loss() {
         let x = 0.5;
         let y = 1.0;
-        let expected = 0.6931471805599453;
+        let expected = std::f64::consts::LN_2;
         assert_eq!(log_loss(x, y), expected);
     }
     #[test]
@@ -1058,7 +1043,7 @@ mod tests {
         let eigenvalues = qr_algorithm(&matrix, tolerance);
 
         // Known eigenvalues for this matrix are approximately 4.236 and 2.764
-        let known_eigenvalues = vec![4.6180342, 2.381966];
+        let known_eigenvalues = [4.6180342, 2.381966];
         println!("Eigenvalues: {:?}", eigenvalues);
         // Check if the calculated eigenvalues are close to the known eigenvalues
         assert_eq!(eigenvalues.len(), known_eigenvalues.len());
@@ -1083,7 +1068,7 @@ mod tests {
 
     #[test]
     fn test_pca_transform() {
-        let pca = PrincipalComponentAnalysis::new(2, 0.1, false, 0.01);
+        let pca = PrincipalComponentAnalysis::new(2, 0.01);
         let test_data = create_test_data();
         let transformed_data = pca.transform(test_data);
 
@@ -1107,5 +1092,12 @@ mod tests {
             .map(|row| row[0] * row[1])
             .sum::<f64>();
         assert!(dot_product.abs() < 1e-6);
+    }
+
+    #[test]
+    fn pca_respects_requested_component_count() {
+        let pca = PrincipalComponentAnalysis::new(1, 0.01);
+        let transformed_data = pca.transform(create_test_data());
+        assert!(transformed_data.iter().all(|row| row.len() == 1));
     }
 }

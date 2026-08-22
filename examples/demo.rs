@@ -22,7 +22,7 @@ fn main() {
     println!("LinearRegression preds: {:?}", lr.predict(&lr_data));
 
     // --- PCA ---
-    let pca = PrincipalComponentAnalysis::new(2, 0.1, false, 0.01);
+    let pca = PrincipalComponentAnalysis::new(2, 0.01);
     let pca_out = pca.transform(vec![vec![2.5, 2.4], vec![0.5, 0.7], vec![2.2, 2.9]]);
     println!("PCA(1) transform rows: {}", pca_out.len());
 
