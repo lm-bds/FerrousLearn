@@ -124,8 +124,8 @@ impl PrincipalComponentAnalysis {
             tolerance,
         }
     }
-    pub fn transform(&self, data: Vec<Vec<f64>>) -> Vec<Vec<f64>> {
-        let data = standardise_matrix(&data);
+    pub fn transform(&self, data: &[Vec<f64>]) -> Vec<Vec<f64>> {
+        let data = standardise_matrix(data);
         let n_features = data[0].len();
         let n_components = self.n_components;
         assert!(
@@ -267,9 +267,9 @@ impl LinearRegression {
             }
 
             loss /= X.len() as f64;
-            for i in 0..self.weights.as_ref().unwrap().len() {
-                self.weights.as_mut().unwrap()[i] -=
-                    self.learning_rate * gradients[i] / X.len() as f64;
+            let weights = self.weights.as_mut().unwrap();
+            for (weight, gradient) in weights.iter_mut().zip(gradients.iter()) {
+                *weight -= self.learning_rate * gradient / X.len() as f64;
             }
             if verbose && i % 100 == 0 {
                 println!("Iteration {}: Loss {}", i, loss);
@@ -332,9 +332,9 @@ impl LogisticRegression {
 
             loss /= X.len() as f64;
 
-            for i in 0..self.weights.as_ref().unwrap().len() {
-                self.weights.as_mut().unwrap()[i] -=
-                    self.learning_rate * gradients[i] / X.len() as f64;
+            let weights = self.weights.as_mut().unwrap();
+            for (weight, gradient) in weights.iter_mut().zip(gradients.iter()) {
+                *weight -= self.learning_rate * gradient / X.len() as f64;
             }
             if verbose && i % 100 == 0 {
                 println!("Iteration {}: Loss {}", i, loss);
@@ -558,11 +558,9 @@ fn has_converged(matrix: &[Vec<f64>], tolerance: f64) -> bool {
         panic!("Matrix must be square.");
     }
 
-    for i in 0..nrows {
-        for j in 0..i {
-            if matrix[i][j].abs() > tolerance {
-                return false;
-            }
+    for (i, row) in matrix.iter().enumerate().take(nrows) {
+        if row.iter().take(i).any(|value| value.abs() > tolerance) {
+            return false;
         }
     }
     true
@@ -598,8 +596,11 @@ fn gaussian_elimination_for_eigenvector(a: &mut [Vec<f64>]) -> Vec<f64> {
 
         for j in (i + 1)..n {
             let ratio = a[j][i] / a[i][i];
-            for k in i..n {
-                a[j][k] -= ratio * a[i][k];
+            let (upper, lower) = a.split_at_mut(j);
+            let pivot_row = &upper[i];
+            let row = &mut lower[0];
+            for (k, value) in row.iter_mut().enumerate().skip(i) {
+                *value -= ratio * pivot_row[k];
             }
         }
     }
@@ -620,18 +621,14 @@ fn find_eigenvector(matrix: &[Vec<f64>], eigenvalue: &f64) -> Vec<f64> {
     let n = a.len();
 
     // Subtract the eigenvalue from the diagonal elements to form (A - lambda * I)
-    for i in 0..n {
-        a[i][i] -= eigenvalue;
+    for (i, row) in a.iter_mut().enumerate().take(n) {
+        row[i] -= *eigenvalue;
     }
 
     gaussian_elimination_for_eigenvector(&mut a)
 }
 fn form_projection_matrix(eigenvectors: &[Vec<f64>], k: usize) -> Vec<Vec<f64>> {
-    let mut projection_matrix = Vec::new();
-    for i in 0..k {
-        projection_matrix.push(eigenvectors[i].clone());
-    }
-    projection_matrix
+    eigenvectors.iter().take(k).cloned().collect()
 }
 
 fn transform_data(data: &[Vec<f64>], projection_matrix: &[Vec<f64>]) -> Vec<Vec<f64>> {
@@ -948,7 +945,7 @@ mod tests {
     fn test_pca_transform() {
         let pca = PrincipalComponentAnalysis::new(2, 0.01);
         let test_data = create_test_data();
-        let transformed_data = pca.transform(test_data);
+        let transformed_data = pca.transform(&test_data);
 
         assert_eq!(transformed_data.len(), 10); // 10 samples
         assert_eq!(transformed_data[0].len(), 2); // 2 principal components
@@ -975,7 +972,8 @@ mod tests {
     #[test]
     fn pca_respects_requested_component_count() {
         let pca = PrincipalComponentAnalysis::new(1, 0.01);
-        let transformed_data = pca.transform(create_test_data());
+        let test_data = create_test_data();
+        let transformed_data = pca.transform(&test_data);
         assert!(transformed_data.iter().all(|row| row.len() == 1));
     }
 }
