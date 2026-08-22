@@ -369,21 +369,6 @@ fn add_bias(data: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
     biased
 }
 
-fn sigmoid_vec(data: &Vec<Vec<f64>>, weight: f64) -> Vec<Vec<f64>> {
-    let e = std::f64::consts::E;
-    let sigmoid = data
-        .iter()
-        .map(|row| {
-            row.iter()
-                .map(|&x| {
-                    let z = x * weight;
-                    1.0 / (1.0 + f64::exp(-z))
-                })
-                .collect()
-        })
-        .collect();
-    sigmoid
-}
 fn standardise(vec: &Vec<f64>) -> Vec<f64> {
     let mean = calculate_mean(vec);
     let std_dev = calculate_std_dev(vec);
@@ -422,16 +407,6 @@ fn log_loss(x: f64, y: f64) -> f64 {
     -y * probpred.ln() - (1.0 - y) * (1.0 - probpred).ln()
 }
 
-fn matrix_vector_multiply(matrix: &Vec<Vec<f64>>, vector: &Vec<f64>) -> Vec<f64> {
-    if matrix.is_empty() || matrix[0].len() != vector.len() {
-        panic!("Invalid dimensions for matrix-vector multiplication.");
-    }
-
-    matrix
-        .iter()
-        .map(|row| row.iter().zip(vector.iter()).map(|(r, v)| r * v).sum())
-        .collect()
-}
 fn transpose(matrix: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
     let rows = matrix.len();
     let cols = matrix[0].len();
@@ -509,45 +484,12 @@ fn scale_vector(vec: &Vec<f64>, scalar: f64) -> Vec<f64> {
     vec.iter().map(|x| x * scalar).collect()
 }
 
-fn normalise_vector(vec: &Vec<f64>) -> Vec<f64> {
-    let norm = vec.iter().map(|x| x.powi(2)).sum::<f64>().sqrt();
-    if norm > 0.0 {
-        vec.iter().map(|x| x / norm).collect()
-    } else {
-        vec.clone()
-    }
-}
-
 fn vector_difference_norm(vec1: &Vec<f64>, vec2: &Vec<f64>) -> f64 {
     vec1.iter()
         .zip(vec2.iter())
         .map(|(x, y)| (x - y).powi(2))
         .sum::<f64>()
         .sqrt()
-}
-
-fn qr_decomposition(matrix: &Vec<Vec<f64>>) -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
-    let n_features = matrix[0].len();
-    let n_samples = matrix.len();
-    let mut q = matrix.clone();
-    let mut r = vec![vec![0.0; n_features]; n_features];
-
-    for i in 0..n_features {
-        let i_th_column = q.iter().map(|row| row[i]).collect::<Vec<f64>>();
-        normalise_vector(&i_th_column);
-        for k in 0..n_samples {
-            q[k][i] = i_th_column[k];
-        }
-        for j in i + 1..n_features {
-            let jth_column = q.iter().map(|row| row[j]).collect::<Vec<f64>>();
-            r[i][j] = sdot(&i_th_column, &jth_column);
-
-            for k in 0..n_samples {
-                q[k][j] -= r[i][j] * i_th_column[k];
-            }
-        }
-    }
-    (q, r)
 }
 
 fn gramscmidt_orthogonalisation(matrix: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
@@ -588,10 +530,6 @@ fn norm(v: &Vec<f64>) -> f64 {
 }
 fn vector_difference(vec1: &Vec<f64>, vec2: &Vec<f64>) -> Vec<f64> {
     vec1.iter().zip(vec2.iter()).map(|(x, y)| x - y).collect()
-}
-
-fn is_zero_vector(vec: &Vec<f64>) -> bool {
-    vec.iter().all(|&x| x.abs() < 1e-10)
 }
 
 fn projection(vec1: &Vec<f64>, vec2: &Vec<f64>) -> Vec<f64> {
@@ -644,88 +582,6 @@ fn matrix_multiply(a: &Vec<Vec<f64>>, b: &Vec<Vec<f64>>) -> Vec<Vec<f64>> {
         }
     }
     result
-}
-fn determinant(matrix: &Vec<Vec<f64>>) -> f64 {
-    let nrows = matrix.len();
-    let ncols = matrix[0].len();
-
-    assert_eq!(nrows, ncols, "Matrix must be square.");
-
-    match nrows {
-        2 => matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0],
-        3 => {
-            let a = matrix[0][0] * (matrix[1][1] * matrix[2][2] - matrix[1][2] * matrix[2][1]);
-            let b = matrix[0][1] * (matrix[1][0] * matrix[2][2] - matrix[1][2] * matrix[2][0]);
-            let c = matrix[0][2] * (matrix[1][0] * matrix[2][1] - matrix[1][1] * matrix[2][0]);
-            a - b + c
-        }
-        _ => {
-            let (_, u) = lu_decomposition(matrix);
-            determinant_from_lu(&u)
-        }
-    }
-}
-
-fn lu_decomposition(matrix: &Vec<Vec<f64>>) -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
-    let n = matrix.len();
-    assert!(
-        n > 0 && matrix[0].len() == n,
-        "Matrix must be square and non-empty."
-    );
-
-    let mut l = vec![vec![0.0; n]; n];
-    let mut u = vec![vec![0.0; n]; n];
-
-    for i in 0..n {
-        // Upper Triangular
-        for k in i..n {
-            let mut sum = 0.0;
-            for j in 0..i {
-                sum += l[i][j] * u[j][k];
-            }
-            u[i][k] = matrix[i][k] - sum;
-        }
-
-        // Lower Triangular
-        for k in i..n {
-            if i == k {
-                l[i][i] = 1.0; // Diagonal as 1
-            } else {
-                let mut sum = 0.0;
-                for j in 0..i {
-                    sum += l[k][j] * u[j][i];
-                }
-                l[k][i] = (matrix[k][i] - sum) / u[i][i];
-            }
-        }
-    }
-
-    (l, u)
-}
-
-fn determinant_from_lu(u: &Vec<Vec<f64>>) -> f64 {
-    let mut det = 1.0;
-    for i in 0..u.len() {
-        det *= u[i][i];
-    }
-    det
-}
-fn calculate_eigenvalues(matrix: Vec<Vec<f64>>) -> [f64; 2] {
-    let a = matrix[0][0];
-    let b = matrix[0][1];
-    let c = matrix[1][0];
-    let d = matrix[1][1];
-
-    let trace = a + d;
-    let determinant = a * d - b * c;
-
-    let middle_term = (trace / 2.0).powi(2) - determinant;
-    let sqrt_middle_term = middle_term.sqrt();
-
-    let eigenvalue1 = trace / 2.0 - sqrt_middle_term;
-    let eigenvalue2 = trace / 2.0 + sqrt_middle_term;
-
-    [eigenvalue1, eigenvalue2]
 }
 
 fn gaussian_elimination_for_eigenvector(a: &mut [Vec<f64>]) -> Vec<f64> {
@@ -835,11 +691,33 @@ fn average_of_rows(matrix: Vec<Vec<f64>>) -> Vec<f64> {
         .collect()
 }
 
-fn main() {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sigmoid_vec(data: &Vec<Vec<f64>>, weight: f64) -> Vec<Vec<f64>> {
+        data.iter()
+            .map(|row| {
+                row.iter()
+                    .map(|&x| {
+                        let z = x * weight;
+                        1.0 / (1.0 + f64::exp(-z))
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn matrix_vector_multiply(matrix: &Vec<Vec<f64>>, vector: &Vec<f64>) -> Vec<f64> {
+        if matrix.is_empty() || matrix[0].len() != vector.len() {
+            panic!("Invalid dimensions for matrix-vector multiplication.");
+        }
+
+        matrix
+            .iter()
+            .map(|row| row.iter().zip(vector.iter()).map(|(r, v)| r * v).sum())
+            .collect()
+    }
 
     #[test]
     fn test_knn_regressor() {
