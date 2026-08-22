@@ -11,20 +11,23 @@ fn main() {
         vec![9.0, 8.0],
         vec![8.0, 9.0],
     ];
-    kmeans.fit(&data, 42);
-    println!("KMeans labels: {:?}", kmeans.predict(&data));
+    kmeans.fit(&data, 42).unwrap();
+    println!("KMeans labels: {:?}", kmeans.predict(&data).unwrap());
 
     // --- Linear regression ---
     let lr_data = vec![vec![1.0], vec![2.0], vec![3.0], vec![4.0]];
     let lr_target = vec![2.0, 4.0, 6.0, 8.0];
     let mut lr = LinearRegression::new(0.01, 2000);
-    lr.fit(&lr_data, &lr_target, false);
-    println!("LinearRegression preds: {:?}", lr.predict(&lr_data));
+    lr.fit(&lr_data, &lr_target, false).unwrap();
+    println!(
+        "LinearRegression preds: {:?}",
+        lr.predict(&lr_data).unwrap()
+    );
 
     // --- PCA ---
     let pca = PrincipalComponentAnalysis::new(2, 0.01);
     let pca_input = vec![vec![2.5, 2.4], vec![0.5, 0.7], vec![2.2, 2.9]];
-    let pca_out = pca.transform(&pca_input);
+    let pca_out = pca.transform(&pca_input).unwrap();
     println!("PCA(1) transform rows: {}", pca_out.len());
 
     println!("\nRun `cargo test` to execute the full test suite.");

@@ -1,5 +1,126 @@
 #![allow(unused_imports, unused_variables, non_snake_case)]
 
+use std::fmt;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FerrousError {
+    EmptyDataset,
+    EmptyRow {
+        row: usize,
+    },
+    EmptyTargets,
+    RaggedMatrix {
+        row: usize,
+        expected: usize,
+        actual: usize,
+    },
+    TargetLengthMismatch {
+        samples: usize,
+        targets: usize,
+    },
+    NonFiniteInput {
+        row: usize,
+        column: usize,
+    },
+    NonFiniteTarget {
+        index: usize,
+    },
+    TargetOutOfRange {
+        index: usize,
+    },
+    InvalidK {
+        k: usize,
+        sample_count: usize,
+    },
+    InvalidClusterCount {
+        clusters: usize,
+        sample_count: usize,
+    },
+    InvalidPcaComponentCount {
+        components: usize,
+        feature_count: usize,
+    },
+    InsufficientSamples {
+        samples: usize,
+    },
+    ZeroVarianceFeature {
+        column: usize,
+    },
+    PredictionBeforeFit,
+    FeatureCountMismatch {
+        expected: usize,
+        actual: usize,
+    },
+}
+
+impl fmt::Display for FerrousError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FerrousError::EmptyDataset => write!(f, "dataset cannot be empty"),
+            FerrousError::EmptyRow { row } => write!(f, "row {} cannot be empty", row),
+            FerrousError::EmptyTargets => write!(f, "targets cannot be empty"),
+            FerrousError::RaggedMatrix {
+                row,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "row {} has {} columns but expected {}",
+                row, actual, expected
+            ),
+            FerrousError::TargetLengthMismatch { samples, targets } => write!(
+                f,
+                "target length {} does not match sample count {}",
+                targets, samples
+            ),
+            FerrousError::NonFiniteInput { row, column } => {
+                write!(f, "input at row {}, column {} must be finite", row, column)
+            }
+            FerrousError::NonFiniteTarget { index } => {
+                write!(f, "target at index {} must be finite", index)
+            }
+            FerrousError::TargetOutOfRange { index } => {
+                write!(f, "target at index {} must be within [0, 1]", index)
+            }
+            FerrousError::InvalidK { k, sample_count } => {
+                write!(f, "k={} is invalid for sample count {}", k, sample_count)
+            }
+            FerrousError::InvalidClusterCount {
+                clusters,
+                sample_count,
+            } => write!(
+                f,
+                "cluster count {} is invalid for sample count {}",
+                clusters, sample_count
+            ),
+            FerrousError::InvalidPcaComponentCount {
+                components,
+                feature_count,
+            } => write!(
+                f,
+                "component count {} is invalid for feature count {}",
+                components, feature_count
+            ),
+            FerrousError::InsufficientSamples { samples } => {
+                write!(f, "sample count {} is insufficient for PCA", samples)
+            }
+            FerrousError::ZeroVarianceFeature { column } => {
+                write!(f, "feature at column {} has zero variance", column)
+            }
+            FerrousError::PredictionBeforeFit => {
+                write!(f, "model must be fitted before predicting")
+            }
+            FerrousError::FeatureCountMismatch { expected, actual } => write!(
+                f,
+                "feature count {} does not match expected {}",
+                actual, expected
+            ),
+        }
+    }
+}
+
+impl std::error::Error for FerrousError {}
+
 #[derive(PartialEq)]
 pub enum Verbosity {
     Verbose,
@@ -52,6 +173,100 @@ impl LCG {
     }
 }
 
+fn validate_matrix(matrix: &[Vec<f64>]) -> Result<usize, FerrousError> {
+    if matrix.is_empty() {
+        return Err(FerrousError::EmptyDataset);
+    }
+
+    let expected = matrix[0].len();
+    if expected == 0 {
+        return Err(FerrousError::EmptyRow { row: 1 });
+    }
+
+    for (row_index, row) in matrix.iter().enumerate() {
+        if row.is_empty() {
+            return Err(FerrousError::EmptyRow { row: row_index + 1 });
+        }
+
+        if row.len() != expected {
+            return Err(FerrousError::RaggedMatrix {
+                row: row_index + 1,
+                expected,
+                actual: row.len(),
+            });
+        }
+
+        for (column_index, value) in row.iter().enumerate() {
+            if !value.is_finite() {
+                return Err(FerrousError::NonFiniteInput {
+                    row: row_index + 1,
+                    column: column_index + 1,
+                });
+            }
+        }
+    }
+
+    Ok(expected)
+}
+
+fn validate_targets(targets: &[f64], sample_count: usize) -> Result<(), FerrousError> {
+    if targets.is_empty() {
+        return Err(FerrousError::EmptyTargets);
+    }
+
+    if targets.len() != sample_count {
+        return Err(FerrousError::TargetLengthMismatch {
+            samples: sample_count,
+            targets: targets.len(),
+        });
+    }
+
+    for (index, value) in targets.iter().enumerate() {
+        if !value.is_finite() {
+            return Err(FerrousError::NonFiniteTarget { index: index + 1 });
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_logistic_targets(targets: &[f64]) -> Result<(), FerrousError> {
+    for (index, value) in targets.iter().enumerate() {
+        if *value < 0.0 || *value > 1.0 {
+            return Err(FerrousError::TargetOutOfRange { index: index + 1 });
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_pca_input(data: &[Vec<f64>]) -> Result<usize, FerrousError> {
+    let feature_count = validate_matrix(data)?;
+
+    if data.len() < 2 {
+        return Err(FerrousError::InsufficientSamples {
+            samples: data.len(),
+        });
+    }
+
+    for column in 0..feature_count {
+        let reference = data[0][column];
+        if data.iter().skip(1).all(|row| row[column] == reference) {
+            return Err(FerrousError::ZeroVarianceFeature { column: column + 1 });
+        }
+    }
+
+    Ok(feature_count)
+}
+
+fn validate_feature_count(expected: usize, actual: usize) -> Result<(), FerrousError> {
+    if expected != actual {
+        Err(FerrousError::FeatureCountMismatch { expected, actual })
+    } else {
+        Ok(())
+    }
+}
+
 pub struct KMeans {
     n_clusters: usize,
     max_iter: usize,
@@ -68,8 +283,16 @@ impl KMeans {
             centroids: None,
         }
     }
-    pub fn fit(&mut self, data: &[Vec<f64>], seed: u64) {
-        let mut centroids = Vec::new();
+    pub fn fit(&mut self, data: &[Vec<f64>], seed: u64) -> Result<(), FerrousError> {
+        let feature_count = validate_matrix(data)?;
+        if self.n_clusters == 0 || self.n_clusters > data.len() {
+            return Err(FerrousError::InvalidClusterCount {
+                clusters: self.n_clusters,
+                sample_count: data.len(),
+            });
+        }
+
+        let mut centroids = Vec::with_capacity(self.n_clusters);
         let mut rng = LCG::new(1664525, 1013904223, 2u64.pow(32), seed);
         for _ in 0..self.n_clusters {
             let random_index = rng.rand_range(0, data.len() as u64 - 1);
@@ -85,7 +308,7 @@ impl KMeans {
                 })
                 .collect();
             let clusters = create_3d_clusters(data, cluster_assignments, self.n_clusters);
-            let new_centroids = calculate_new_centroid(&clusters);
+            let new_centroids = calculate_new_centroid(&clusters, &centroids);
             let mut centroid_movement = 0.0;
             for (i, centroid) in centroids.iter().enumerate() {
                 centroid_movement += vector_difference_norm(centroid, &new_centroids[i]);
@@ -95,21 +318,27 @@ impl KMeans {
             }
             centroids = new_centroids;
         }
+        debug_assert!(centroids
+            .iter()
+            .all(|centroid| centroid.len() == feature_count));
         self.centroids = Some(centroids.clone());
+        Ok(())
     }
 
-    pub fn predict(&self, data: &[Vec<f64>]) -> Vec<usize> {
-        let mut predictions = Vec::new();
+    pub fn predict(&self, data: &[Vec<f64>]) -> Result<Vec<usize>, FerrousError> {
         let centroids = self
             .centroids
             .as_ref()
-            .expect("Train model first before predicting");
+            .ok_or(FerrousError::PredictionBeforeFit)?;
+        let feature_count = validate_matrix(data)?;
+        validate_feature_count(centroids[0].len(), feature_count)?;
+        let mut predictions = Vec::new();
         for row in data.iter() {
             let distances = find_distance_point_centroids(row, centroids);
             let closest_centroid = find_closest_centroid(&distances);
             predictions.push(closest_centroid);
         }
-        predictions
+        Ok(predictions)
     }
 }
 
@@ -124,14 +353,16 @@ impl PrincipalComponentAnalysis {
             tolerance,
         }
     }
-    pub fn transform(&self, data: &[Vec<f64>]) -> Vec<Vec<f64>> {
+    pub fn transform(&self, data: &[Vec<f64>]) -> Result<Vec<Vec<f64>>, FerrousError> {
+        let n_features = validate_pca_input(data)?;
+        if self.n_components == 0 || self.n_components > n_features {
+            return Err(FerrousError::InvalidPcaComponentCount {
+                components: self.n_components,
+                feature_count: n_features,
+            });
+        }
+
         let data = standardise_matrix(data);
-        let n_features = data[0].len();
-        let n_components = self.n_components;
-        assert!(
-            (1..=n_features).contains(&n_components),
-            "n_components must be between 1 and the feature count"
-        );
         let covariance_matrix = covariance_matrix(&data);
         let eigenvalues = qr_algorithm(&covariance_matrix, self.tolerance);
         let mut eigenvectors = Vec::new();
@@ -140,11 +371,12 @@ impl PrincipalComponentAnalysis {
             eigenvectors.push(eigenvector);
         }
 
-        let projection_matrix = form_projection_matrix(&eigenvectors, n_components);
+        let projection_matrix = form_projection_matrix(&eigenvectors, self.n_components);
 
-        transform_data(&data, &projection_matrix)
+        Ok(transform_data(&data, &projection_matrix))
     }
 }
+
 pub struct KNearestNeighboursRegressor {
     k: usize,
     weighting_function: WeightingFunction,
@@ -168,33 +400,53 @@ impl KNearestNeighboursRegressor {
         }
     }
 
-    pub fn fit(&mut self, x_train: &[Vec<f64>], y_train: &[f64], verbose: Verbosity) {
+    pub fn fit(
+        &mut self,
+        x_train: &[Vec<f64>],
+        y_train: &[f64],
+        verbose: Verbosity,
+    ) -> Result<(), FerrousError> {
+        let feature_count = validate_matrix(x_train)?;
+        validate_targets(y_train, x_train.len())?;
+        if self.k == 0 || self.k > x_train.len() {
+            return Err(FerrousError::InvalidK {
+                k: self.k,
+                sample_count: x_train.len(),
+            });
+        }
+
+        debug_assert!(feature_count > 0);
         self.x_train = Some(x_train.to_vec());
         self.y_train = Some(y_train.to_vec());
 
         if verbose == Verbosity::Verbose {
             println!("Model is lazy, no computation is done until prediction");
         };
+
+        Ok(())
     }
-    pub fn predict(&self, prediction_matrix: &[Vec<f64>]) -> Vec<f64> {
+    pub fn predict(&self, prediction_matrix: &[Vec<f64>]) -> Result<Vec<f64>, FerrousError> {
         let x_train = self
             .x_train
-            .clone()
-            .expect("Train model first before predicting");
+            .as_ref()
+            .ok_or(FerrousError::PredictionBeforeFit)?;
         let y_train = self
             .y_train
-            .clone()
-            .expect("Train model first before predicting");
+            .as_ref()
+            .ok_or(FerrousError::PredictionBeforeFit)?;
 
         let distance_function = match self.distance_metric {
             DistanceMetric::Euclidean => euclidean_distance,
             DistanceMetric::Manhattan => manhatten_distance,
         };
 
-        let weighting_function = match self.weighting_function {
-            WeightingFunction::Uniform => uniform_weighting,
-            WeightingFunction::Distance => distance_weighting,
+        let (weighting_function, prefer_exact_matches) = match self.weighting_function {
+            WeightingFunction::Uniform => (uniform_weighting as fn(f64) -> f64, false),
+            WeightingFunction::Distance => (distance_weighting as fn(f64) -> f64, true),
         };
+
+        let prediction_feature_count = validate_matrix(prediction_matrix)?;
+        validate_feature_count(x_train[0].len(), prediction_feature_count)?;
 
         let mut predictions = Vec::new();
 
@@ -204,31 +456,42 @@ impl KNearestNeighboursRegressor {
                 let distance = distance_function(row, x_train_row);
                 distances.push((distance, y_train_row));
             }
-            distances.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+            distances.sort_by(|a, b| a.0.total_cmp(&b.0));
             distances.truncate(self.k);
 
-            let weights: Vec<f64> = distances
+            let zero_distance_targets: Vec<f64> = distances
                 .iter()
-                .map(|(distance, _)| weighting_function(*distance))
+                .filter(|(distance, _)| *distance == 0.0)
+                .map(|(_, target)| *target)
                 .collect();
-            let votes: Vec<f64> = weights
-                .iter()
-                .zip(distances.iter())
-                .map(|(weight, (_, y_train_row))| *weight * *y_train_row)
-                .collect();
-            let vote_sum = votes.iter().sum::<f64>();
-            let total_weight = weights.iter().sum::<f64>();
-            let prediction = if total_weight != 0.0 {
-                vote_sum / total_weight
+
+            let prediction = if prefer_exact_matches && !zero_distance_targets.is_empty() {
+                zero_distance_targets.iter().sum::<f64>() / zero_distance_targets.len() as f64
             } else {
-                0.0
+                let weights: Vec<f64> = distances
+                    .iter()
+                    .map(|(distance, _)| weighting_function(*distance))
+                    .collect();
+                let votes: Vec<f64> = weights
+                    .iter()
+                    .zip(distances.iter())
+                    .map(|(weight, (_, y_train_row))| *weight * *y_train_row)
+                    .collect();
+                let vote_sum = votes.iter().sum::<f64>();
+                let total_weight = weights.iter().sum::<f64>();
+                if total_weight != 0.0 {
+                    vote_sum / total_weight
+                } else {
+                    0.0
+                }
             };
             predictions.push(prediction);
         }
 
-        predictions
+        Ok(predictions)
     }
 }
+
 pub struct LinearRegression {
     weights: Option<Vec<f64>>,
     learning_rate: f64,
@@ -243,53 +506,60 @@ impl LinearRegression {
             iterations,
         }
     }
-    pub fn fit(&mut self, data: &[Vec<f64>], target: &[f64], verbose: bool) {
-        let input_size = data[0].len();
-        let X: Vec<Vec<f64>> = add_bias(data);
+    pub fn fit(
+        &mut self,
+        data: &[Vec<f64>],
+        target: &[f64],
+        verbose: bool,
+    ) -> Result<(), FerrousError> {
+        let input_size = validate_matrix(data)?;
+        validate_targets(target, data.len())?;
 
-        self.weights = Some(vec![0.0; input_size + 1]);
+        let x = add_bias(data);
+        let mut weights = vec![0.0; input_size + 1];
 
         for i in 0..self.iterations {
-            let mut gradients = vec![0.0; self.weights.as_ref().unwrap().len()];
+            let mut gradients = vec![0.0; weights.len()];
             let mut loss = 0.0;
-            for (X_row, &target) in X.iter().zip(target.iter()) {
-                let predicted: f64 = X_row
-                    .iter()
-                    .zip(self.weights.as_ref().unwrap())
-                    .map(|(x, y)| x * y)
-                    .sum();
-                let error: f64 = predicted - target;
+            for (x_row, &target_value) in x.iter().zip(target.iter()) {
+                let predicted: f64 = x_row.iter().zip(weights.iter()).map(|(x, y)| x * y).sum();
+                let error: f64 = predicted - target_value;
                 loss += error.powi(2);
 
-                for (n, &xi) in X_row.iter().enumerate() {
+                for (n, &xi) in x_row.iter().enumerate() {
                     gradients[n] += error * xi;
                 }
             }
 
-            loss /= X.len() as f64;
-            let weights = self.weights.as_mut().unwrap();
+            loss /= x.len() as f64;
             for (weight, gradient) in weights.iter_mut().zip(gradients.iter()) {
-                *weight -= self.learning_rate * gradient / X.len() as f64;
+                *weight -= self.learning_rate * gradient / x.len() as f64;
             }
             if verbose && i % 100 == 0 {
                 println!("Iteration {}: Loss {}", i, loss);
             }
         }
+
+        self.weights = Some(weights);
+        Ok(())
     }
-    pub fn predict(&self, data: &[Vec<f64>]) -> Vec<f64> {
-        let X = add_bias(data);
+    pub fn predict(&self, data: &[Vec<f64>]) -> Result<Vec<f64>, FerrousError> {
         let weights = self
             .weights
             .as_ref()
-            .expect("Train model first before predicting");
+            .ok_or(FerrousError::PredictionBeforeFit)?;
+        let input_size = validate_matrix(data)?;
+        validate_feature_count(weights.len() - 1, input_size)?;
 
-        let predictions = X
+        let x = add_bias(data);
+        let predictions = x
             .iter()
-            .map(|X_row| X_row.iter().zip(weights).map(|(&xi, &wi)| xi * wi).sum())
+            .map(|x_row| x_row.iter().zip(weights).map(|(&xi, &wi)| xi * wi).sum())
             .collect();
-        predictions
+        Ok(predictions)
     }
 }
+
 pub struct LogisticRegression {
     weights: Option<Vec<f64>>,
     learning_rate: f64,
@@ -308,54 +578,69 @@ impl LogisticRegression {
         1.0 / (1.0 + (-z).exp())
     }
 
-    pub fn fit(&mut self, data: &[Vec<f64>], target: &[f64], verbose: bool) {
-        let input_size = data[0].len();
-        let X: Vec<Vec<f64>> = add_bias(data);
+    pub fn fit(
+        &mut self,
+        data: &[Vec<f64>],
+        target: &[f64],
+        verbose: bool,
+    ) -> Result<(), FerrousError> {
+        let input_size = validate_matrix(data)?;
+        validate_targets(target, data.len())?;
+        validate_logistic_targets(target)?;
 
-        self.weights = Some(vec![0.0; input_size + 1]);
+        let x = add_bias(data);
+        let mut weights = vec![0.0; input_size + 1];
         for i in 0..self.iterations {
-            let mut gradients = vec![0.0; self.weights.as_ref().unwrap().len()];
+            let mut gradients = vec![0.0; weights.len()];
             let mut loss = 0.0;
-            for (X_row, &target) in X.iter().zip(target.iter()) {
-                let z = X_row
-                    .iter()
-                    .zip(self.weights.as_ref().unwrap())
-                    .map(|(x, y)| x * y)
-                    .sum();
+            for (x_row, &target_value) in x.iter().zip(target.iter()) {
+                let z = x_row.iter().zip(weights.iter()).map(|(x, y)| x * y).sum();
                 let predicted = Self::sigmoid(z);
-                loss += log_loss(predicted, target);
+                loss += log_loss(predicted, target_value);
 
-                for (n, &xi) in X_row.iter().enumerate() {
-                    gradients[n] += (predicted - target) * xi;
+                for (n, &xi) in x_row.iter().enumerate() {
+                    gradients[n] += (predicted - target_value) * xi;
                 }
             }
 
-            loss /= X.len() as f64;
+            loss /= x.len() as f64;
 
-            let weights = self.weights.as_mut().unwrap();
             for (weight, gradient) in weights.iter_mut().zip(gradients.iter()) {
-                *weight -= self.learning_rate * gradient / X.len() as f64;
+                *weight -= self.learning_rate * gradient / x.len() as f64;
             }
             if verbose && i % 100 == 0 {
                 println!("Iteration {}: Loss {}", i, loss);
             }
         }
+
+        self.weights = Some(weights);
+        Ok(())
     }
-    pub fn predict(&self, data: &[Vec<f64>]) -> Vec<f64> {
-        let X = add_bias(data);
-        X.iter()
-            .map(|X_row| {
+    pub fn predict(&self, data: &[Vec<f64>]) -> Result<Vec<f64>, FerrousError> {
+        let weights = self
+            .weights
+            .as_ref()
+            .ok_or(FerrousError::PredictionBeforeFit)?;
+        let input_size = validate_matrix(data)?;
+        validate_feature_count(weights.len() - 1, input_size)?;
+
+        let x = add_bias(data);
+        let predictions = x
+            .iter()
+            .map(|x_row| {
                 Self::sigmoid(
-                    X_row
+                    x_row
                         .iter()
-                        .zip(self.weights.as_ref().unwrap())
+                        .zip(weights.iter())
                         .map(|(&xi, &wi)| xi * wi)
                         .sum(),
                 )
             })
-            .collect()
+            .collect();
+        Ok(predictions)
     }
 }
+
 fn add_bias(data: &[Vec<f64>]) -> Vec<Vec<f64>> {
     let biased = data
         .iter()
@@ -645,12 +930,12 @@ fn find_distance_point_centroids(point: &[f64], centroids: &[Vec<f64>]) -> Vec<f
 }
 
 fn find_closest_centroid(distances: &[f64]) -> usize {
-    let min_distance = distances
+    distances
         .iter()
-        .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-        .unwrap();
-    let min_index = distances.iter().position(|x| x == min_distance).unwrap();
-    min_index
+        .enumerate()
+        .min_by(|a, b| a.1.total_cmp(b.1))
+        .map(|(index, _)| index)
+        .unwrap_or(0)
 }
 
 fn create_3d_clusters(
@@ -658,11 +943,7 @@ fn create_3d_clusters(
     cluster_assignments: Vec<usize>,
     n_cluster: usize,
 ) -> Vec<Vec<Vec<f64>>> {
-    let mut clusters: Vec<Vec<Vec<f64>>> = Vec::new();
-    let max_cluster = cluster_assignments.iter().max().unwrap();
-    for _ in 0..max_cluster + 1 {
-        clusters.push(Vec::new());
-    }
+    let mut clusters: Vec<Vec<Vec<f64>>> = vec![Vec::new(); n_cluster];
 
     for (row, &cluster) in data.iter().zip(cluster_assignments.iter()) {
         clusters[cluster].push(row.clone());
@@ -670,10 +951,20 @@ fn create_3d_clusters(
     clusters
 }
 
-fn calculate_new_centroid(clusters: &[Vec<Vec<f64>>]) -> Vec<Vec<f64>> {
+fn calculate_new_centroid(
+    clusters: &[Vec<Vec<f64>>],
+    previous_centroids: &[Vec<f64>],
+) -> Vec<Vec<f64>> {
     clusters
         .iter()
-        .map(|cluster| average_of_rows(transpose(cluster)))
+        .enumerate()
+        .map(|(index, cluster)| {
+            if cluster.is_empty() {
+                previous_centroids[index].clone()
+            } else {
+                average_of_rows(transpose(cluster))
+            }
+        })
         .collect()
 }
 
@@ -726,9 +1017,11 @@ mod tests {
 
         let x_train = vec![vec![1.0, 2.0], vec![2.0, 3.0], vec![3.0, 4.0]];
         let y_train = vec![2.0, 3.0, 4.0];
-        regressor.fit(&x_train, &y_train, Verbosity::Silent);
+        regressor
+            .fit(&x_train, &y_train, Verbosity::Silent)
+            .unwrap();
 
-        let predictions = regressor.predict(&[vec![2.0, 3.0]]);
+        let predictions = regressor.predict(&[vec![2.0, 3.0]]).unwrap();
         assert_eq!(predictions.len(), 1);
         assert!((predictions[0] - 3.0).abs() < 1e-5);
     }
@@ -738,9 +1031,9 @@ mod tests {
         let target = vec![3.0, 5.0, 7.0]; // Simple linear relationship
 
         let mut model = LinearRegression::new(0.01, 1000);
-        model.fit(&data, &target, false);
+        model.fit(&data, &target, false).unwrap();
 
-        let predictions = model.predict(&data);
+        let predictions = model.predict(&data).unwrap();
 
         for (predicted, &actual) in predictions.iter().zip(target.iter()) {
             assert!((predicted - actual).abs() < 1.0);
@@ -751,8 +1044,8 @@ mod tests {
         let data = vec![vec![1.0], vec![2.0], vec![3.0]];
         let target = vec![0.0, 0.0, 1.0]; // Simple binary targets
         let mut model = LogisticRegression::new(0.01, 1000);
-        model.fit(&data, &target, false);
-        let predictions = model.predict(&data);
+        model.fit(&data, &target, false).unwrap();
+        let predictions = model.predict(&data).unwrap();
         for (predicted, &actual) in predictions.iter().zip(target.iter()) {
             let predicted_class = if *predicted > 0.5 { 1.0 } else { 0.0 };
             assert_eq!(predicted_class, actual);
@@ -945,7 +1238,7 @@ mod tests {
     fn test_pca_transform() {
         let pca = PrincipalComponentAnalysis::new(2, 0.01);
         let test_data = create_test_data();
-        let transformed_data = pca.transform(&test_data);
+        let transformed_data = pca.transform(&test_data).unwrap();
 
         assert_eq!(transformed_data.len(), 10); // 10 samples
         assert_eq!(transformed_data[0].len(), 2); // 2 principal components
@@ -973,7 +1266,7 @@ mod tests {
     fn pca_respects_requested_component_count() {
         let pca = PrincipalComponentAnalysis::new(1, 0.01);
         let test_data = create_test_data();
-        let transformed_data = pca.transform(&test_data);
+        let transformed_data = pca.transform(&test_data).unwrap();
         assert!(transformed_data.iter().all(|row| row.len() == 1));
     }
 }

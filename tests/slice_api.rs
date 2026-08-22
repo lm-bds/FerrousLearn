@@ -13,13 +13,13 @@ fn public_learning_apis_accept_slices() {
 
     let mut knn =
         KNearestNeighboursRegressor::new(3, WeightingFunction::Uniform, DistanceMetric::Euclidean);
-    knn.fit(x_train, y_train, Verbosity::Silent);
-    let knn_predictions = knn.predict(prediction_matrix);
+    knn.fit(x_train, y_train, Verbosity::Silent).unwrap();
+    let knn_predictions = knn.predict(prediction_matrix).unwrap();
     assert_eq!(knn_predictions, vec![3.0]);
 
     let mut linear = LinearRegression::new(0.01, 1_000);
-    linear.fit(data, labels, false);
-    let linear_predictions = linear.predict(data);
+    linear.fit(data, labels, false).unwrap();
+    let linear_predictions = linear.predict(data).unwrap();
     assert_eq!(linear_predictions.len(), data.len());
     for (predicted, &actual) in linear_predictions.iter().zip(labels.iter()) {
         assert!(predicted.is_finite());
@@ -28,8 +28,8 @@ fn public_learning_apis_accept_slices() {
 
     let mut logistic = LogisticRegression::new(0.01, 1_000);
     let logistic_targets: &[f64] = &[0.0, 0.0, 1.0];
-    logistic.fit(data, logistic_targets, false);
-    let logistic_predictions = logistic.predict(data);
+    logistic.fit(data, logistic_targets, false).unwrap();
+    let logistic_predictions = logistic.predict(data).unwrap();
     assert_eq!(logistic_predictions.len(), data.len());
     for predicted in &logistic_predictions {
         assert!(predicted.is_finite());
@@ -44,14 +44,14 @@ fn public_learning_apis_accept_slices() {
         vec![3.1, 3.0],
     ];
     let pca = PrincipalComponentAnalysis::new(1, 0.01);
-    let transformed = pca.transform(pca_input);
+    let transformed = pca.transform(pca_input).unwrap();
     assert_eq!(transformed.len(), pca_input.len());
     assert!(transformed
         .iter()
         .all(|row| row.len() == 1 && row[0].is_finite()));
 
     let mut kmeans = KMeans::new(1, 10, 0.0001);
-    kmeans.fit(data, 42);
-    let kmeans_predictions = kmeans.predict(data);
+    kmeans.fit(data, 42).unwrap();
+    let kmeans_predictions = kmeans.predict(data).unwrap();
     assert_eq!(kmeans_predictions, vec![0, 0, 0]);
 }
